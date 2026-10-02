@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://message-easy-mode.invalid/schemas/release-manifest-v1.json",
+  "title": "Message Easy Mode unified release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "product",
+    "release",
+    "sources",
+    "support",
+    "controlPlane",
+    "artifacts",
+    "verification"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "version",
+        "channel"
+      ],
+      "properties": {
+        "id": {
+          "const": "mem"
+        },
+        "name": {
+          "const": "Message Easy Mode"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "channel": {
+          "enum": [
+            "stable",
+            "prerelease"
+          ]
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generatedAtUtc",
+        "publication"
+      ],
+      "properties": {
+        "generatedAtUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "publication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "repository",
+            "tag"
+          ],
+          "properties": {
+            "provider": {
+              "const": "github-releases"
+            },
+            "repository": {
+              "type": "string",
+              "format": "uri"
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 82
+            }
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "repository",
+          "commit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "repository": {
+            "type": "string",
+            "format": "uri"
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40,64}$"
+          }
+        }
+      }
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controlPlaneHosts"
+      ],
+      "properties": {
+        "controlPlaneHosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "os",
+              "version",
+              "architecture"
+            ],
+            "properties": {
+              "os": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "architecture": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "controlPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "image"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "tag",
+            "digest",
+            "reference"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "reference": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "fileName",
+          "sha256",
+          "sizeBytes",
+          "sourceId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "os",
+              "version",
+              "architecture"
+            ],
+            "properties": {
+              "os": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "architecture": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checksums",
+        "publication",
+        "provenance"
+      ],
+      "properties": {
+        "checksums": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "fileName"
+          ],
+          "properties": {
+            "algorithm": {
+              "const": "sha256"
+            },
+            "fileName": {
+              "const": "SHA256SUMS"
+            }
+          }
+        },
+        "publication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "immutableReleaseRequired",
+            "releaseAttestationRequired"
+          ],
+          "properties": {
+            "provider": {
+              "const": "github-releases"
+            },
+            "immutableReleaseRequired": {
+              "const": true
+            },
+            "releaseAttestationRequired": {
+              "const": true
+            }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "fileArtifactsRequired",
+            "containerImageRequired"
+          ],
+          "properties": {
+            "provider": {
+              "const": "github-artifact-attestations"
+            },
+            "fileArtifactsRequired": {
+              "const": true
+            },
+            "containerImageRequired": {
+              "const": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

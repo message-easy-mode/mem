@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="cli.help.title" xml:space="preserve"><value>Matrix Easy Mode CLI</value></data>
+  <data name="cli.help.usage" xml:space="preserve"><value>Verwendung:</value></data>
+  <data name="cli.help.options" xml:space="preserve"><value>Optionen:</value></data>
+  <data name="cli.help.environment" xml:space="preserve"><value>Umgebung:</value></data>
+  <data name="cli.help.planned" xml:space="preserve"><value>Geplant:</value></data>
+  <data name="cli.help.option.host-agent-url" xml:space="preserve"><value>  --host-agent-url &lt;url&gt;    Standard: http://localhost:7105</value></data>
+  <data name="cli.help.option.installer-token" xml:space="preserve"><value>  --installer-token &lt;token&gt; Für aktuelle Control-Plane-Befehle erforderlich; speichert Auth-Cookie im Arbeitsspeicher</value></data>
+  <data name="cli.help.option.language" xml:space="preserve"><value>  --language &lt;en|de&gt;        Sprache für die menschenlesbare Ausgabe. Standard: Betriebssystemsprache, dann Englisch</value></data>
+  <data name="cli.help.option.json" xml:space="preserve"><value>  --json                    Stabile maschinenlesbare JSON-Ausgabe verwenden.</value></data>
+  <data name="cli.help.environment.host-agent-url" xml:space="preserve"><value>  MEM_HOST_AGENT_URL</value></data>
+  <data name="cli.help.environment.installer-token" xml:space="preserve"><value>  MEM_INSTALLER_TOKEN</value></data>
+  <data name="cli.help.environment.language" xml:space="preserve"><value>  MEM_CLI_LANGUAGE           Sprache für menschenlesbare Ausgabe in dieser Shell-Sitzung.</value></data>
+  <data name="cli.help.planned.stack-compare" xml:space="preserve"><value>  mem stack compare &lt;slug-or-id&gt; [--json]</value></data>
+  <data name="cli.help.commands" xml:space="preserve"><value>Befehle:</value></data>
+  <data name="cli.help.authority.line1" xml:space="preserve"><value>Normale Autorisierung: Verwenden Sie mem login --device mit einem benannten Profil.</value></data>
+  <data name="cli.help.authority.line2" xml:space="preserve"><value>Sitzung anzeigen: mem account show; Sitzung widerrufen: mem logout.</value></data>
+  <data name="cli.help.stable-command-note" xml:space="preserve"><value>Befehlsnamen, Flags, Umgebungsvariablen, JSON-Felder sowie Status- und Fehlercodes bleiben stabiles Englisch.</value></data>
+  <data name="cli.help.option.profile" xml:space="preserve"><value>  --profile &lt;name&gt;           Benanntes lokales Profil verwenden.</value></data>
+  <data name="cli.help.option.server" xml:space="preserve"><value>  --server &lt;url&gt;             Profilserver für einen Befehl überschreiben.</value></data>
+  <data name="cli.help.environment.server-url" xml:space="preserve"><value>  MEM_SERVER_URL             Standardserver für Befehle ohne Profil.</value></data>
+  <data name="cli.config.language.title" xml:space="preserve"><value>Lokale MEM-CLI-Spracheinstellung</value></data>
+  <data name="cli.config.language.value" xml:space="preserve"><value>Sprache: {{language}}</value></data>
+  <data name="cli.config.language.system-default" xml:space="preserve"><value>Systemstandard</value></data>
+  <data name="cli.config.language.saved" xml:space="preserve"><value>Lokale CLI-Spracheinstellung gespeichert: {{language}}</value></data>
+  <data name="cli.config.language.json-contracts" xml:space="preserve"><value>Dies ändert nur die menschenlesbare Ausgabe. JSON-Verträge bleiben Englisch.</value></data>
+  <data name="cli.login.title" xml:space="preserve"><value>MEM CLI-Geräteanmeldung</value></data>
+  <data name="cli.login.profile-line" xml:space="preserve"><value>Profil: {{profileName}}</value></data>
+  <data name="cli.login.server-line" xml:space="preserve"><value>Server: {{serverUrl}}</value></data>
+  <data name="cli.login.open-browser" xml:space="preserve"><value>Öffnen Sie diese Seite in einem Browser:</value></data>
+  <data name="cli.login.enter-device-code" xml:space="preserve"><value>Geben Sie diesen Gerätecode ein:</value></data>
+  <data name="cli.login.waiting-approval" xml:space="preserve"><value>Warte auf Browserfreigabe...</value></data>
+  <data name="cli.login.existing-session-stored" xml:space="preserve"><value>Für dieses Profil ist bereits eine MEM-CLI-Gerätesitzung gespeichert: {{profileName}}</value></data>
+  <data name="cli.login.existing-no-new-authorization" xml:space="preserve"><value>Es wurde keine neue Geräteautorisierung gestartet.</value></data>
+  <data name="cli.login.approved" xml:space="preserve"><value>Geräteanmeldung für Profil genehmigt: {{profileName}}</value></data>
+  <data name="cli.login.credential-stored" xml:space="preserve"><value>Die Geräteanmeldeinformation wurde sicher im OS-Secret-Store gespeichert.</value></data>
+  <data name="cli.login.idle-expiry" xml:space="preserve"><value>Sitzung läuft bei Inaktivität ab: {{expiresAtUtc}}</value></data>
+  <data name="cli.login.absolute-expiry" xml:space="preserve"><value>Absolute Sitzungsablaufzeit: {{expiresAtUtc}}</value></data>
+  <data name="cli.login.error.interactive-required" xml:space="preserve"><value>Die Geräteanmeldung ist interaktiv und unterstützt --json nicht.</value></data>
+  <data name="cli.login.error.device-required" xml:space="preserve"><value>Die Geräteanmeldung erfordert --device. Verwendung: mem login --device</value></data>
+  <data name="cli.login.error.profile-required" xml:space="preserve"><value>Erstellen oder wählen Sie ein lokales MEM-CLI-Profil, bevor Sie sich anmelden.</value></data>
+  <data name="cli.login.error.profile-invalid" xml:space="preserve"><value>Das ausgewählte Profil oder die Server-URL ist für die sichere Geräteanmeldung nicht gültig.</value></data>
+  <data name="cli.login.error.secure-store-unavailable" xml:space="preserve"><value>Für die Geräteanmeldung ist ein nutzbarer OS-Secret-Store erforderlich. Es wurde keine Geräteautorisierung gestartet.</value></data>
+  <data name="cli.login.error.secure-store-read-unavailable" xml:space="preserve"><value>Der OS-Secret-Store konnte nicht sicher gelesen werden. Es wurde keine Geräteautorisierung gestartet.</value></data>
+  <data name="cli.login.error.cancelled" xml:space="preserve"><value>Die Geräteanmeldung wurde abgebrochen. Es wurde keine Anmeldeinformation gespeichert.</value></data>
+  <data name="cli.login.error.unavailable" xml:space="preserve"><value>Die Geräteanmeldung konnte nicht sicher abgeschlossen werden.</value></data>
+  <data name="cli.login.error.unreachable-waiting" xml:space="preserve"><value>Die Control Plane konnte beim Warten auf die Browserfreigabe nicht erreicht werden.</value></data>
+  <data name="cli.login.error.authorization-denied" xml:space="preserve"><value>Die Geräteautorisierung wurde im Browser abgelehnt. Es wurde keine Anmeldeinformation gespeichert.</value></data>
+  <data name="cli.login.error.authorization-expired" xml:space="preserve"><value>Die Geräteautorisierung ist vor der Browserfreigabe abgelaufen. Es wurde keine Anmeldeinformation gespeichert.</value></data>
+  <data name="cli.login.error.authorization-failed" xml:space="preserve"><value>Die Geräteautorisierung konnte nicht sicher abgeschlossen werden. Es wurde keine Anmeldeinformation gespeichert.</value></data>
+  <data name="cli.login.error.invalid-credential" xml:space="preserve"><value>Die Control Plane hat eine ungültige Geräteanmeldeinformation zurückgegeben. Es wurde keine Anmeldeinformation gespeichert.</value></data>
+  <data name="cli.login.error.secure-store-write-failed" xml:space="preserve"><value>Die genehmigte Geräteanmeldeinformation konnte nicht sicher gespeichert werden.</value></data>
+  <data name="cli.login.error.rate-limited" xml:space="preserve"><value>Die Geräteanmeldung ist vorübergehend ratenbegrenzt. Warten Sie und versuchen Sie es erneut.</value></data>
+  <data name="cli.login.error.unreachable-start" xml:space="preserve"><value>Die Control Plane konnte zum Starten der Geräteanmeldung nicht erreicht werden.</value></data>
+  <data name="cli.login.error.authorization-unavailable" xml:space="preserve"><value>Die Geräteanmeldung konnte nicht sicher gestartet werden.</value></data>
+
+  <data name="cli.error.missing-language-value" xml:space="preserve"><value>Für --language ist ein Wert erforderlich. Unterstützte Werte: en, de.</value></data>
+  <data name="cli.error.unsupported-language" xml:space="preserve"><value>Nicht unterstützte Sprache '{{language}}'. Unterstützte Werte: en, de.</value></data>
+  <data name="cli.error.installer-token-required" xml:space="preserve"><value>Ein Control-Plane-Installer-Token ist erforderlich. Geben Sie --installer-token an oder setzen Sie MEM_INSTALLER_TOKEN.</value></data>
+  <data name="cli.error.installer-token-rejected" xml:space="preserve"><value>Das Control-Plane-Installer-Token wurde nicht akzeptiert. Prüfen Sie das aktuelle Token und versuchen Sie es erneut.</value></data>
+  <data name="cli.error.agent-secret-retired" xml:space="preserve"><value>--agent-secret ist eingestellt und kann diesen Befehl nicht autorisieren. Verwenden Sie während der Übergangsphase --installer-token oder MEM_INSTALLER_TOKEN.</value></data>
+  <data name="cli.backups.catalog-title" xml:space="preserve"><value>Sicherungskatalog</value></data>
+  <data name="cli.backups.matching-count.one" xml:space="preserve"><value>{{count}} passende Sicherung</value></data>
+  <data name="cli.backups.matching-count.other" xml:space="preserve"><value>{{count}} passende Sicherungen</value></data>
+  <data name="cli.backups.title.list" xml:space="preserve"><value>MEM-Sicherungskatalog</value></data>
+  <data name="cli.backups.title.entry" xml:space="preserve"><value>MEM-Sicherungskatalogeintrag</value></data>
+  <data name="cli.backups.title.lifecycle" xml:space="preserve"><value>Lebenszyklus des MEM-Sicherungskatalogs</value></data>
+  <data name="cli.backups.title.uploaded-zip" xml:space="preserve"><value>MEM-Herkunft der hochgeladenen ZIP-Datei</value></data>
+  <data name="cli.backups.section.matrix-identity" xml:space="preserve"><value>Matrix-Identität</value></data>
+  <data name="cli.backups.section.advisories" xml:space="preserve"><value>Hinweise</value></data>
+  <data name="cli.backups.section.original-archive" xml:space="preserve"><value>Ursprünglich hochgeladenes ZIP-Archiv</value></data>
+  <data name="cli.backups.section.validation" xml:space="preserve"><value>Validierung</value></data>
+  <data name="cli.backups.section.manifest-identity" xml:space="preserve"><value>Manifestidentität</value></data>
+  <data name="cli.backups.section.retention" xml:space="preserve"><value>Aufbewahrung</value></data>
+  <data name="cli.backups.section.validation-errors" xml:space="preserve"><value>Validierungsfehler</value></data>
+  <data name="cli.backups.section.warnings" xml:space="preserve"><value>Warnungen</value></data>
+  <data name="cli.backups.field" xml:space="preserve"><value>{{label}}: {{value}}</value></data>
+  <data name="cli.backups.field.indented" xml:space="preserve"><value>  {{label}}: {{value}}</value></data>
+  <data name="cli.backups.field.provenance" xml:space="preserve"><value>{{label}}: {{value}} (nur Herkunftsnachweis)</value></data>
+  <data name="cli.backups.field.provenance-indented" xml:space="preserve"><value>  {{label}}: {{value}} (nur Herkunftsnachweis)</value></data>
+  <data name="cli.backups.bullet" xml:space="preserve"><value>  - {{value}}</value></data>
+  <data name="cli.backups.advisory-line" xml:space="preserve"><value>  [{{category}}] {{title}}: {{message}}</value></data>
+  <data name="cli.backups.list.empty" xml:space="preserve"><value>Keine Einträge im Sicherungskatalog gefunden.</value></data>
+  <data name="cli.backups.entry.not-found" xml:space="preserve"><value>Der Sicherungskatalogeintrag wurde nicht gefunden.</value></data>
+  <data name="cli.backups.lifecycle.not-found" xml:space="preserve"><value>Keine Lebenszyklusinformationen für den Sicherungskatalogeintrag gefunden.</value></data>
+  <data name="cli.backups.table.catalog-entry-id" xml:space="preserve"><value>KATALOGEINTRAGS-ID</value></data>
+  <data name="cli.backups.table.origin" xml:space="preserve"><value>HERKUNFT</value></data>
+  <data name="cli.backups.table.display-name" xml:space="preserve"><value>ANZEIGENAME</value></data>
+  <data name="cli.backups.table.source-stack" xml:space="preserve"><value>QUELL-STACK</value></data>
+  <data name="cli.backups.table.captured" xml:space="preserve"><value>ERFASST</value></data>
+  <data name="cli.backups.table.payload" xml:space="preserve"><value>NUTZLAST</value></data>
+  <data name="cli.backups.table.integrity" xml:space="preserve"><value>INTEGRITÄT</value></data>
+  <data name="cli.backups.table.size" xml:space="preserve"><value>GRÖSSE</value></data>
+  <data name="cli.backups.table.warnings" xml:space="preserve"><value>WARNUNGEN</value></data>
+  <data name="cli.backups.label.source" xml:space="preserve"><value>Quelle</value></data>
+  <data name="cli.backups.label.status" xml:space="preserve"><value>Status</value></data>
+  <data name="cli.backups.label.entries" xml:space="preserve"><value>Einträge</value></data>
+  <data name="cli.backups.label.detail" xml:space="preserve"><value>Details</value></data>
+  <data name="cli.backups.label.catalog-entry-id" xml:space="preserve"><value>Katalogeintrags-ID</value></data>
+  <data name="cli.backups.label.display-name" xml:space="preserve"><value>Anzeigename</value></data>
+  <data name="cli.backups.label.origin" xml:space="preserve"><value>Herkunft</value></data>
+  <data name="cli.backups.label.source-stack" xml:space="preserve"><value>Quell-Stack</value></data>
+  <data name="cli.backups.label.source-backup" xml:space="preserve"><value>Quellsicherung</value></data>
+  <data name="cli.backups.label.captured-utc" xml:space="preserve"><value>Erfasst (UTC)</value></data>
+  <data name="cli.backups.label.created-utc" xml:space="preserve"><value>Erstellt (UTC)</value></data>
+  <data name="cli.backups.label.imported-utc" xml:space="preserve"><value>Importiert (UTC)</value></data>
+  <data name="cli.backups.label.materialised-utc" xml:space="preserve"><value>Materialisiert (UTC)</value></data>
+  <data name="cli.backups.label.payload-state" xml:space="preserve"><value>Nutzlaststatus</value></data>
+  <data name="cli.backups.label.payload-size" xml:space="preserve"><value>Nutzlastgröße</value></data>
+  <data name="cli.backups.label.integrity" xml:space="preserve"><value>Integrität</value></data>
+  <data name="cli.backups.label.warnings" xml:space="preserve"><value>Warnungen</value></data>
+  <data name="cli.backups.label.integrity-detail" xml:space="preserve"><value>Integritätsdetails</value></data>
+  <data name="cli.backups.label.upload-reference" xml:space="preserve"><value>Upload-Referenz</value></data>
+  <data name="cli.backups.label.server-name" xml:space="preserve"><value>Servername</value></data>
+  <data name="cli.backups.label.matrix-host" xml:space="preserve"><value>Matrix-Host</value></data>
+  <data name="cli.backups.label.element-host" xml:space="preserve"><value>Element-Host</value></data>
+  <data name="cli.backups.label.payload-present" xml:space="preserve"><value>Nutzlast vorhanden</value></data>
+  <data name="cli.backups.label.active-restore" xml:space="preserve"><value>Aktive Wiederherstellung</value></data>
+  <data name="cli.backups.label.active-restore-session" xml:space="preserve"><value>Aktive Wiederherstellungssitzung</value></data>
+  <data name="cli.backups.label.can-permanently-delete" xml:space="preserve"><value>Darf dauerhaft gelöscht werden</value></data>
+  <data name="cli.backups.label.delete-block" xml:space="preserve"><value>Löschsperre</value></data>
+  <data name="cli.backups.label.validation-reference" xml:space="preserve"><value>Validierungsreferenz</value></data>
+  <data name="cli.backups.label.archive-state" xml:space="preserve"><value>Archivstatus</value></data>
+  <data name="cli.backups.label.uploaded-file" xml:space="preserve"><value>Hochgeladene Datei</value></data>
+  <data name="cli.backups.label.archive-size" xml:space="preserve"><value>Archivgröße</value></data>
+  <data name="cli.backups.label.source-kind" xml:space="preserve"><value>Quelltyp</value></data>
+  <data name="cli.backups.label.recorded-utc" xml:space="preserve"><value>Erfasst (UTC)</value></data>
+  <data name="cli.backups.label.summary" xml:space="preserve"><value>Zusammenfassung</value></data>
+  <data name="cli.backups.label.zip-entries" xml:space="preserve"><value>ZIP-Einträge</value></data>
+  <data name="cli.backups.label.uncompressed-size" xml:space="preserve"><value>Unkomprimierte Größe</value></data>
+  <data name="cli.backups.label.manifest-present" xml:space="preserve"><value>Manifest vorhanden</value></data>
+  <data name="cli.backups.label.checksums-present" xml:space="preserve"><value>Prüfsummen vorhanden</value></data>
+  <data name="cli.backups.label.passed-checks" xml:space="preserve"><value>Bestandene Prüfungen</value></data>
+  <data name="cli.backups.label.failed-checks" xml:space="preserve"><value>Fehlgeschlagene Prüfungen</value></data>
+  <data name="cli.backups.label.version" xml:space="preserve"><value>Version</value></data>
+  <data name="cli.backups.label.mem-version" xml:space="preserve"><value>MEM-Version</value></data>
+  <data name="cli.backups.label.stack-display-name" xml:space="preserve"><value>Stack-Anzeigename</value></data>
+  <data name="cli.backups.label.matrix-server-name" xml:space="preserve"><value>Matrix-Servername</value></data>
+  <data name="cli.backups.label.included-files" xml:space="preserve"><value>Enthaltene Dateien</value></data>
+  <data name="cli.backups.label.can-delete" xml:space="preserve"><value>Kann gelöscht werden</value></data>
+  <data name="cli.backups.label.removed-utc" xml:space="preserve"><value>Entfernt (UTC)</value></data>
+  <data name="cli.backups.label.removed-by" xml:space="preserve"><value>Entfernt von</value></data>
+  <data name="cli.backups.value.yes" xml:space="preserve"><value>ja</value></data>
+  <data name="cli.backups.value.no" xml:space="preserve"><value>nein</value></data>
+  <data name="cli.backups.value.unknown" xml:space="preserve"><value>unbekannt</value></data>
+  <data name="cli.backups.value.none" xml:space="preserve"><value>keine</value></data>
+  <data name="cli.backups.value.not-recorded" xml:space="preserve"><value>nicht dokumentiert</value></data>
+  <data name="cli.backups.value.not-removed" xml:space="preserve"><value>nicht entfernt</value></data>
+  <data name="cli.backups.value.ok" xml:space="preserve"><value>OK</value></data>
+  <data name="cli.backups.value.error" xml:space="preserve"><value>Fehler</value></data>
+  <data name="cli.backups.value.unreachable" xml:space="preserve"><value>nicht erreichbar</value></data>
+  <data name="cli.backups.value.warning" xml:space="preserve"><value>Warnung</value></data>
+  <data name="cli.backups.value.valid" xml:space="preserve"><value>gültig</value></data>
+  <data name="cli.backups.value.invalid" xml:space="preserve"><value>ungültig</value></data>
+  <data name="cli.backups.value.available" xml:space="preserve"><value>verfügbar</value></data>
+  <data name="cli.backups.value.materialising" xml:space="preserve"><value>wird materialisiert</value></data>
+  <data name="cli.backups.value.failed" xml:space="preserve"><value>fehlgeschlagen</value></data>
+  <data name="cli.backups.value.removed" xml:space="preserve"><value>entfernt</value></data>
+  <data name="cli.backups.value.retained" xml:space="preserve"><value>aufbewahrt</value></data>
+  <data name="cli.backups.value.missing" xml:space="preserve"><value>fehlt</value></data>
+  <data name="cli.backups.value.ambiguous" xml:space="preserve"><value>mehrdeutig</value></data>
+  <data name="cli.backups.value.local-captured" xml:space="preserve"><value>lokal erfasst</value></data>
+  <data name="cli.backups.value.imported-zip" xml:space="preserve"><value>importierte ZIP-Datei</value></data>
+  <data name="cli.backups.value.uploaded-zip" xml:space="preserve"><value>hochgeladene ZIP-Datei</value></data>
+  <data name="cli.backups.error.list-does-not-support-stack" xml:space="preserve"><value>Die katalogorientierte Sicherungsliste unterstützt --stack nicht.</value></data>
+  <data name="cli.backups.error.list-use-inspect" xml:space="preserve"><value>Verwenden Sie mem backups inspect &lt;catalog-entry-id&gt; für einen einzelnen Katalogeintrag.</value></data>
+  <data name="cli.backups.error.missing-catalog-entry-id" xml:space="preserve"><value>Katalogeintrags-ID fehlt.</value></data>
+  <data name="cli.backups.error.inspect-requires-catalog-entry" xml:space="preserve"><value>Backups inspect ist katalogorientiert und akzeptiert eine Katalogeintrags-ID. Verwenden Sie:</value></data>
+  <data name="cli.backups.error.lifecycle-requires-catalog-entry" xml:space="preserve"><value>Backups lifecycle akzeptiert eine Katalogeintrags-ID. Verwenden Sie:</value></data>
+  <data name="cli.backups.error.missing-validation-reference" xml:space="preserve"><value>Validierungsreferenz fehlt.</value></data>
+  <data name="cli.backups.title.import" xml:space="preserve"><value>MEM-Sicherungskatalogimport</value></data>
+  <data name="cli.backups.title.export" xml:space="preserve"><value>MEM-Sicherungskatalogexport</value></data>
+  <data name="cli.backups.title.permanent-delete" xml:space="preserve"><value>Dauerhaftes Löschen des MEM-Sicherungskatalogs</value></data>
+  <data name="cli.backups.title.uploaded-zip-delete" xml:space="preserve"><value>Löschen des hochgeladenen MEM-ZIP-Archivs</value></data>
+  <data name="cli.backups.section.import-integrity" xml:space="preserve"><value>Integrität</value></data>
+  <data name="cli.backups.section.import-manifest" xml:space="preserve"><value>Manifest</value></data>
+  <data name="cli.backups.section.checks" xml:space="preserve"><value>Prüfungen</value></data>
+  <data name="cli.backups.section.catalog-first-next-steps" xml:space="preserve"><value>Nächste Schritte (katalogorientiert)</value></data>
+  <data name="cli.backups.label.materialisation-action" xml:space="preserve"><value>Materialisierungsaktion</value></data>
+  <data name="cli.backups.label.zip-size" xml:space="preserve"><value>ZIP-Größe</value></data>
+  <data name="cli.backups.label.checksum-lines" xml:space="preserve"><value>Prüfsummenzeilen</value></data>
+  <data name="cli.backups.label.checked-files" xml:space="preserve"><value>Geprüfte Dateien</value></data>
+  <data name="cli.backups.label.missing-files" xml:space="preserve"><value>Fehlende Dateien</value></data>
+  <data name="cli.backups.label.kind" xml:space="preserve"><value>Art</value></data>
+  <data name="cli.backups.label.database-present" xml:space="preserve"><value>Datenbank vorhanden</value></data>
+  <data name="cli.backups.label.matrix-present" xml:space="preserve"><value>Matrix vorhanden</value></data>
+  <data name="cli.backups.label.media-files" xml:space="preserve"><value>Mediendateien</value></data>
+  <data name="cli.backups.label.media-bytes" xml:space="preserve"><value>Mediengröße</value></data>
+  <data name="cli.backups.label.element-present" xml:space="preserve"><value>Element vorhanden</value></data>
+  <data name="cli.backups.label.export-id" xml:space="preserve"><value>Export-ID</value></data>
+  <data name="cli.backups.label.download-name" xml:space="preserve"><value>Downloadname</value></data>
+  <data name="cli.backups.label.output-path" xml:space="preserve"><value>Ausgabepfad</value></data>
+  <data name="cli.backups.label.export-size" xml:space="preserve"><value>Exportgröße</value></data>
+  <data name="cli.backups.label.bytes-written" xml:space="preserve"><value>Geschriebene Bytes</value></data>
+  <data name="cli.backups.label.deleted-by" xml:space="preserve"><value>Gelöscht von</value></data>
+  <data name="cli.backups.label.payload-deleted" xml:space="preserve"><value>Nutzlast gelöscht</value></data>
+  <data name="cli.backups.label.original-archive-deleted" xml:space="preserve"><value>Ursprüngliches Archiv gelöscht</value></data>
+  <data name="cli.backups.label.portable-exports-deleted" xml:space="preserve"><value>Gelöschte portable Exporte</value></data>
+  <data name="cli.backups.label.detached-restore-attempts" xml:space="preserve"><value>Getrennte Wiederherstellungsversuche</value></data>
+  <data name="cli.backups.label.deleted-utc" xml:space="preserve"><value>Gelöscht (UTC)</value></data>
+  <data name="cli.backups.label.bytes-deleted" xml:space="preserve"><value>Gelöschte Bytes</value></data>
+  <data name="cli.backups.value.created" xml:space="preserve"><value>erstellt</value></data>
+  <data name="cli.backups.value.deleted" xml:space="preserve"><value>gelöscht</value></data>
+  <data name="cli.backups.value.blocked" xml:space="preserve"><value>gesperrt</value></data>
+  <data name="cli.backups.value.write-failed" xml:space="preserve"><value>Schreiben fehlgeschlagen</value></data>
+  <data name="cli.backups.value.downloaded" xml:space="preserve"><value>heruntergeladen</value></data>
+  <data name="cli.backups.value.not-created" xml:space="preserve"><value>nicht erstellt</value></data>
+  <data name="cli.backups.value.not-available" xml:space="preserve"><value>nicht verfügbar</value></data>
+  <data name="cli.backups.value.not-written" xml:space="preserve"><value>nicht geschrieben</value></data>
+  <data name="cli.backups.check.pass" xml:space="preserve"><value>BESTANDEN</value></data>
+  <data name="cli.backups.check.fail" xml:space="preserve"><value>FEHLER</value></data>
+  <data name="cli.backups.error.delete-requires-catalog-entry" xml:space="preserve"><value>Backups delete ist katalogorientiert und akzeptiert eine Katalogeintrags-ID.
+Verwenden Sie: mem backups delete &lt;catalog-entry-id&gt; --yes</value></data>
+  <data name="cli.backups.error.refuse-permanent-delete-without-yes" xml:space="preserve"><value>Ein Sicherungskatalogeintrag wird ohne --yes nicht dauerhaft gelöscht.</value></data>
+  <data name="cli.backups.error.permanent-delete-impact" xml:space="preserve"><value>Dadurch werden die verwaltete Wiederherstellungsnutzlast, ein eventuell aufbewahrtes ursprüngliches ZIP-Archiv, erzeugte portable Exporte und der Katalogeintrag entfernt.</value></data>
+  <data name="cli.backups.error.permanent-delete-active-restore" xml:space="preserve"><value>Aktive Wiederherstellungsarbeitsbereiche verhindern die Löschung. Abgeschlossene Wiederherstellungsverläufe bleiben als getrennte Historie erhalten.</value></data>
+  <data name="cli.backups.error.missing-catalog-entry-or-output-path" xml:space="preserve"><value>Katalogeintrags-ID oder --out-Pfad fehlt.</value></data>
+  <data name="cli.backups.error.export-requires-catalog-entry" xml:space="preserve"><value>Backups export ist katalogorientiert und akzeptiert eine Katalogeintrags-ID.
+Verwenden Sie: mem backups export &lt;catalog-entry-id&gt; --out &lt;path&gt;</value></data>
+  <data name="cli.backups.error.missing-portable-zip-path" xml:space="preserve"><value>Pfad zur portablen ZIP-Datei fehlt.</value></data>
+  <data name="cli.backups.error.unknown-command" xml:space="preserve"><value>Unbekannter Sicherungsbefehl.</value></data>
+  <data name="cli.backups.error.unknown-uploads-command" xml:space="preserve"><value>Unbekannter Befehl für Sicherungs-Uploads.</value></data>
+  <data name="cli.backups.error.refuse-upload-delete-without-yes" xml:space="preserve"><value>Ein hochgeladenes ZIP-Archiv wird ohne --yes nicht gelöscht.</value></data>
+  <data name="cli.backups.error.upload-delete-impact" xml:space="preserve"><value>Dadurch wird nur das aufbewahrte Upload-Archiv entfernt. Materialisierte Katalognutzlasten und dauerhafte Wiederherstellungsverläufe haben getrennte Lebenszyklen.</value></data>
+  <data name="cli.backups.next.inspect" xml:space="preserve"><value>  Diese Sicherung prüfen: mem backups inspect {{catalogEntryId}}</value></data>
+  <data name="cli.backups.next.inspect-uploaded-zip" xml:space="preserve"><value>  Aufbewahrte ZIP-Herkunft prüfen: mem backups uploads inspect {{validationId}}</value></data>
+  <data name="cli.backups.next.start-restore" xml:space="preserve"><value>  Wiederherstellungsarbeiten nur über den Sicherungskatalogeintrag beginnen.</value></data>
+  <data name="cli.backups.delete.success.source-removed" xml:space="preserve"><value>Die Katalogquelle wurde dauerhaft gelöscht.</value></data>
+  <data name="cli.backups.delete.success.history-retained" xml:space="preserve"><value>Abgeschlossene Wiederherstellungsverläufe bleiben ohne Verknüpfung zur Katalogquelle verfügbar.</value></data>
+  <data name="cli.backups.upload-delete.success.archive-removed" xml:space="preserve"><value>Das aufbewahrte hochgeladene ZIP-Archiv wurde entfernt.</value></data>
+  <data name="cli.backups.upload-delete.success.catalog-retained" xml:space="preserve"><value>Die materialisierte Sicherungskatalognutzlast und dauerhafte Wiederherstellungsverläufe bleiben getrennt erhalten.</value></data>
+</root>

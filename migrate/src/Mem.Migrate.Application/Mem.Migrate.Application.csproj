@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Mem.Migrate.Application</AssemblyName>
+    <RootNamespace>Mem.Migrate.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mem.Migrate.Core/Mem.Migrate.Core.csproj" />
+    <ProjectReference Include="../Mem.Migrate.Infrastructure/Mem.Migrate.Infrastructure.csproj" />
+    <ProjectReference Include="../Mem.Migrate.Legacy.V010/Mem.Migrate.Legacy.V010.csproj" />
+  </ItemGroup>
+</Project>

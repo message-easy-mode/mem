@@ -1,0 +1,39 @@
+name: deltabox-aio-dev
+
+services:
+
+  # sqlite-web:
+  #   image: coleifer/sqlite-web:latest
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8081:8080"
+  #   volumes:
+  #     # Mount your repo's terminal data folder into the container
+  #     - ./data:/data
+  #   command: >
+  #     sqlite_web
+  #     --host 0.0.0.0
+  #     --port 8080
+  #     /data/pos-terminal.dev.db
+
+  # --- Optional alternative: richer GUI (DB Browser for SQLite in a browser) ---
+  sqlitebrowser:
+    image: lscr.io/linuxserver/sqlitebrowser:latest
+    container_name: sqlitebrowser
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Pacific/Auckland
+      - DOCKER_MODS=linuxserver/mods:universal-disable-https
+    ports:
+      - "3001:3001"
+    volumes:
+      - sqlitebrowser_config:/config
+      - ./data/deltabox-aio.dev.db:/config/database/deltabox-aio.dev.db
+      - ./data/deltabox-aio.dev.db-wal:/config/database/deltabox-aio.dev.db-wal
+      - ./data/deltabox-aio.dev.db-shm:/config/database/deltabox-aio.dev.db-shm
+
+
+volumes:
+  sqlitebrowser_config:

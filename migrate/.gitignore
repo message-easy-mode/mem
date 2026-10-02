@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+*.user
+*.suo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.workspace/
+artifacts/
+**/node_modules/
+**/*.tsbuildinfo
+src/Mem.Migrate.Web/wwwroot/**
+!src/Mem.Migrate.Web/wwwroot/.gitkeep

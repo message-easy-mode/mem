@@ -1,0 +1,455 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
+
+CANONICAL_CONTAINER="mem-control-plane"
+LEGACY_CONTAINER="mem-installer"
+LEGACY_VOLUME="mem-installer-data"
+CANONICAL_VOLUME="mem-control-plane-data"
+LOCAL_IMAGE="mem-control-plane:local"
+LEGACY_CERT_PATH="/data/certs/mem-installer.crt"
+LEGACY_KEY_PATH="/data/certs/mem-installer.key"
+
+log() { printf '[release-proof] %s\n' "$*"; }
+fail() { printf '[release-proof] ERROR: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat <<'EOF_USAGE'
+Usage:
+  ./dev/control-plane-release-proof source-audit
+  ./dev/control-plane-release-proof status
+  ./dev/control-plane-release-proof capture-legacy <evidence.tsv>
+  ./dev/control-plane-release-proof verify-rollback <evidence.tsv>
+  ./dev/control-plane-release-proof verify-canonical <evidence.tsv>
+  ./dev/control-plane-release-proof verify-private-admin <container> [ssh-tunnel|trusted-lan] [expected-address]
+
+The evidence file contains only non-secret runtime identity, volume, HTTPS host binding,
+certificate fingerprint and optional Control Plane instance identity. It never
+contains setup tokens, passwords, private keys, recovery codes or database data.
+EOF_USAGE
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
+container_exists() {
+    docker container inspect "$1" >/dev/null 2>&1
+}
+
+container_running() {
+    [[ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null || true)" == "true" ]]
+}
+
+container_image() {
+    docker inspect --format '{{.Config.Image}}' "$1"
+}
+
+container_data_volume() {
+    docker inspect \
+        --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{if eq .Type "volume"}}{{.Name}}{{else}}bind:{{.Source}}{{end}}{{end}}{{end}}' \
+        "$1" 2>/dev/null
+}
+
+container_https_bindings() {
+    docker inspect \
+        --format '{{with index .NetworkSettings.Ports "8443/tcp"}}{{range .}}{{printf "%s|%s\n" .HostIp .HostPort}}{{end}}{{end}}' \
+        "$1" 2>/dev/null
+}
+
+container_https_port() {
+    container_https_bindings "$1" | head -n 1 | awk -F'|' '{print $2}'
+}
+
+container_https_host_ip() {
+    local address
+    address="$(container_https_bindings "$1" | head -n 1 | awk -F'|' '{print $1}')"
+    printf '%s\n' "${address:-0.0.0.0}"
+}
+
+is_rfc1918_ipv4() {
+    local address="$1"
+    python3 - "$address" <<'PY_IPV4'
+import ipaddress, sys
+try:
+    address = ipaddress.ip_address(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+if address.version != 4:
+    raise SystemExit(1)
+private = (
+    address in ipaddress.ip_network("10.0.0.0/8") or
+    address in ipaddress.ip_network("172.16.0.0/12") or
+    address in ipaddress.ip_network("192.168.0.0/16")
+)
+raise SystemExit(0 if private else 1)
+PY_IPV4
+}
+
+classify_private_admin_binding() {
+    local address="${1:-0.0.0.0}"
+    if [[ "$address" == "127.0.0.1" ]]; then
+        printf '%s\n' ssh-tunnel
+    elif is_rfc1918_ipv4 "$address"; then
+        printf '%s\n' trusted-lan
+    else
+        printf '%s\n' unsupported
+    fi
+}
+
+verify_private_admin() {
+    local container="$1"
+    local expected_mode="${2:-}"
+    local expected_address="${3:-}"
+    require_command docker
+    require_command curl
+    require_command python3
+    require_command awk
+    docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable."
+
+    container_exists "$container" || fail "Control Plane container '$container' does not exist."
+    container_running "$container" || fail "Control Plane container '$container' is not running."
+
+    local -a bindings=()
+    local row address port mode
+    while IFS= read -r row; do
+        [[ -n "$row" ]] && bindings+=("$row")
+    done < <(container_https_bindings "$container")
+
+    (( ${#bindings[@]} == 1 )) || fail "Control Plane '$container' must publish container port 8443 exactly once; observed ${#bindings[@]} bindings."
+    IFS='|' read -r address port <<< "${bindings[0]}"
+    address="${address:-0.0.0.0}"
+    [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]] || fail "Control Plane '$container' has an invalid HTTPS host port '${port:-none}'."
+    mode="$(classify_private_admin_binding "$address")"
+    [[ "$mode" != unsupported ]] || fail "Control Plane '$container' is exposed on unsupported host address '$address:$port'. MEM 0.2.0 supports loopback or an explicitly trusted RFC1918 address only."
+
+    if [[ -n "$expected_mode" ]]; then
+        [[ "$expected_mode" == ssh-tunnel || "$expected_mode" == trusted-lan ]] || fail "Expected access mode must be ssh-tunnel or trusted-lan."
+        [[ "$mode" == "$expected_mode" ]] || fail "Expected '$expected_mode' administration for '$container', observed '$mode' on '$address:$port'."
+    fi
+    if [[ -n "$expected_address" ]]; then
+        [[ "$address" == "$expected_address" ]] || fail "Expected Control Plane address '$expected_address', observed '$address'."
+    fi
+
+    curl --insecure --fail --silent --show-error \
+        --connect-timeout 2 --max-time 10 \
+        "https://${address}:${port}/health/ready" >/dev/null
+
+    printf 'Control Plane container   %s\n' "$container"
+    printf 'Administration mode      %s\n' "$mode"
+    printf 'Host binding             %s:%s\n' "$address" "$port"
+    printf 'Exposure                 private\n'
+    log "PASS: '$container' has one health-verified private Control Plane host binding."
+}
+
+volume_file_exists() {
+    local volume="$1"
+    local path="$2"
+    docker run --rm -v "${volume}:/data:ro" alpine:3.20 sh -c "test -f '${path}'" >/dev/null 2>&1
+}
+
+volume_file_sha256() {
+    local volume="$1"
+    local path="$2"
+    docker run --rm -v "${volume}:/data:ro" alpine:3.20 \
+        sha256sum "$path" 2>/dev/null | awk '{print $1}'
+}
+
+runtime_json() {
+    local port="$1"
+    local host="${2:-127.0.0.1}"
+    curl --insecure --fail --silent --show-error \
+        --connect-timeout 2 --max-time 5 \
+        "https://${host}:${port}/health/runtime"
+}
+
+json_field() {
+    local json="$1"
+    local field="$2"
+    python3 -c 'import json,sys; value=json.load(sys.stdin).get(sys.argv[1]); print("" if value is None else str(value).lower() if isinstance(value,bool) else value)' "$field" <<<"$json"
+}
+
+json_field_optional() {
+    local json="$1"
+    local field="$2"
+    python3 -c 'import json,sys
+raw=sys.stdin.read()
+try:
+    payload=json.loads(raw)
+except (json.JSONDecodeError, TypeError):
+    print("")
+    raise SystemExit(0)
+if not isinstance(payload, dict):
+    print("")
+    raise SystemExit(0)
+value=payload.get(sys.argv[1])
+print("" if value is None else str(value).lower() if isinstance(value,bool) else value)' "$field" <<<"$json"
+}
+
+evidence_value() {
+    local file="$1"
+    local key="$2"
+    awk -F '\t' -v wanted="$key" '$1 == wanted {sub(/^[^\t]*\t/, ""); print; exit}' "$file"
+}
+
+assert_evidence_file() {
+    local file="$1"
+    [[ -f "$file" ]] || fail "Evidence file not found: $file"
+    [[ "$(evidence_value "$file" schema)" == "1" ]] || fail "Unsupported or missing evidence schema in $file"
+}
+
+source_audit() {
+    local failures=0
+
+    check_contains() {
+        local file="$1" needle="$2"
+        if ! grep -Fq -- "$needle" "$file"; then
+            printf '[release-proof] FAIL: %s does not contain %s\n' "${file#${REPO_ROOT}/}" "$needle" >&2
+            failures=$((failures + 1))
+        fi
+    }
+
+    check_not_contains() {
+        local file="$1" needle="$2"
+        if grep -Fq -- "$needle" "$file"; then
+            printf '[release-proof] FAIL: %s still contains retired current identity %s\n' "${file#${REPO_ROOT}/}" "$needle" >&2
+            failures=$((failures + 1))
+        fi
+    }
+
+    local required=(
+        "${REPO_ROOT}/apply-slice.sh"
+        "${REPO_ROOT}/install.sh"
+        "${REPO_ROOT}/bootstrap/lib/installer.sh"
+        "${REPO_ROOT}/installer/Dockerfile"
+        "${REPO_ROOT}/dev/mem-env"
+        "${REPO_ROOT}/dev/compose.control-plane.yml"
+        "${REPO_ROOT}/installer/src/Web/package.json"
+        "${REPO_ROOT}/migrate/.dockerignore"
+    )
+    local file
+    for file in "${required[@]}"; do
+        [[ -f "$file" ]] || { printf '[release-proof] FAIL: missing %s\n' "${file#${REPO_ROOT}/}" >&2; failures=$((failures + 1)); }
+    done
+
+    check_contains "${REPO_ROOT}/bootstrap/lib/installer.sh" 'CONTROL_PLANE_CONTAINER_NAME="mem-control-plane"'
+    check_contains "${REPO_ROOT}/bootstrap/lib/installer.sh" 'CONTROL_PLANE_IMAGE_STABLE="ghcr.io/message-easy-mode/mem-control-plane:stable"'
+    check_contains "${REPO_ROOT}/bootstrap/lib/installer.sh" 'LEGACY_CONTROL_PLANE_CONTAINER_NAME="mem-installer"'
+    check_contains "${REPO_ROOT}/installer/Dockerfile" 'org.opencontainers.image.title="MEM Control Plane"'
+    check_contains "${REPO_ROOT}/installer/Dockerfile" '/opt/mem/migrate/current/'
+    check_contains "${REPO_ROOT}/dev/compose.control-plane.yml" 'migrate-source: ../migrate'
+    check_contains "${REPO_ROOT}/dev/compose.control-plane.yml" '127.0.0.1:${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}:8443'
+    check_not_contains "${REPO_ROOT}/dev/compose.control-plane.yml" '"${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}:8443"'
+    check_contains "${REPO_ROOT}/bootstrap/lib/installer.sh" '-p "${publish_spec}"'
+    check_contains "${REPO_ROOT}/bootstrap/lib/control-plane-access.sh" 'CONTROL_PLANE_BIND_ADDRESS="${CONTROL_PLANE_BIND_ADDRESS:-127.0.0.1}"'
+    check_contains "${REPO_ROOT}/bootstrap/install.sh" 'Trusted LAN Control Plane binding accepts RFC1918 IPv4 only.'
+    check_not_contains "${REPO_ROOT}/bootstrap/lib/installer.sh" '-p "${CONTROL_PLANE_PORT}:${CONTROL_PLANE_CONTAINER_HTTPS_PORT}"'
+    check_contains "${REPO_ROOT}/installer/src/Web/package.json" '"test:e2e:all"'
+    check_contains "${REPO_ROOT}/dev/mem-env" 'E2E all passed: local-development then containerized-development.'
+    check_not_contains "${REPO_ROOT}/install.sh" 'Matrix Easy Mode root installer entrypoint.'
+
+    if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        if git -C "$REPO_ROOT" ls-files 'dev/.state/**' | grep -q .; then
+            printf '[release-proof] FAIL: dev/.state contains tracked files\n' >&2
+            failures=$((failures + 1))
+        fi
+    fi
+
+    (( failures == 0 )) || fail "Source audit failed with ${failures} issue(s)."
+    log "PASS: canonical runtime, private-administration publication, image, migration payload, E2E and state-boundary source contracts are present."
+}
+
+status_command() {
+    require_command docker
+    require_command awk
+    docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable."
+
+    local canonical="absent" legacy="absent"
+    container_exists "$CANONICAL_CONTAINER" && canonical="stopped"
+    container_running "$CANONICAL_CONTAINER" && canonical="running"
+    container_exists "$LEGACY_CONTAINER" && legacy="stopped"
+    container_running "$LEGACY_CONTAINER" && legacy="running"
+
+    printf 'MEM Control Plane release status\n'
+    printf 'Canonical container   %s\n' "$canonical"
+    printf 'Legacy container      %s\n' "$legacy"
+    printf 'Canonical volume      %s\n' "$(docker volume inspect "$CANONICAL_VOLUME" >/dev/null 2>&1 && echo present || echo absent)"
+    printf 'Legacy volume         %s\n' "$(docker volume inspect "$LEGACY_VOLUME" >/dev/null 2>&1 && echo present || echo absent)"
+    printf 'Local release image   %s\n' "$(docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1 && echo present || echo absent)"
+
+    if container_exists "$CANONICAL_CONTAINER"; then
+        local canonical_binding canonical_ip canonical_port canonical_mode
+        canonical_binding="$(container_https_bindings "$CANONICAL_CONTAINER" | head -n 1)"
+        IFS='|' read -r canonical_ip canonical_port <<< "$canonical_binding"
+        canonical_ip="${canonical_ip:-0.0.0.0}"
+        canonical_mode="$(classify_private_admin_binding "$canonical_ip")"
+        printf 'Canonical access      %s · %s:%s\n' "$canonical_mode" "$canonical_ip" "${canonical_port:-unknown}"
+    else
+        printf 'Canonical access      n/a\n'
+    fi
+
+    local dev_controllers
+    dev_controllers="$(docker ps -a --format '{{.Names}}' | awk '/^mem-control-plane-dev($|-)/ {print}' | paste -sd ',' -)"
+    printf 'Development runtimes  %s\n' "${dev_controllers:-none}"
+}
+
+capture_legacy() {
+    local evidence="$1"
+    require_command docker
+    require_command curl
+    require_command python3
+    require_command awk
+    docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable."
+
+    container_exists "$LEGACY_CONTAINER" || fail "Legacy container '${LEGACY_CONTAINER}' does not exist."
+    ! container_exists "$CANONICAL_CONTAINER" || fail "Canonical container '${CANONICAL_CONTAINER}' already exists; capture must occur before migration."
+    container_running "$LEGACY_CONTAINER" || fail "Legacy container '${LEGACY_CONTAINER}' must be running for release evidence capture."
+
+    local volume image port host_ip cert_sha key_present runtime="" instance_id=""
+    volume="$(container_data_volume "$LEGACY_CONTAINER")"
+    [[ "$volume" == "$LEGACY_VOLUME" ]] || fail "Legacy container uses unexpected /data volume '${volume:-none}'."
+    image="$(container_image "$LEGACY_CONTAINER")"
+    port="$(container_https_port "$LEGACY_CONTAINER")"
+    host_ip="$(container_https_host_ip "$LEGACY_CONTAINER")"
+    [[ -n "$port" ]] || fail "Could not determine the legacy HTTPS port."
+    volume_file_exists "$volume" "$LEGACY_CERT_PATH" || fail "Legacy certificate is missing: $LEGACY_CERT_PATH"
+    volume_file_exists "$volume" "$LEGACY_KEY_PATH" || fail "Legacy private key is missing: $LEGACY_KEY_PATH"
+    cert_sha="$(volume_file_sha256 "$volume" "$LEGACY_CERT_PATH")"
+    [[ -n "$cert_sha" ]] || fail "Could not fingerprint the legacy certificate."
+    key_present="true"
+
+    local runtime_probe_host="$host_ip"
+    [[ "$runtime_probe_host" == "0.0.0.0" ]] && runtime_probe_host="127.0.0.1"
+    if runtime="$(runtime_json "$port" "$runtime_probe_host" 2>/dev/null)"; then
+        instance_id="$(json_field_optional "$runtime" controlPlaneInstanceId)"
+    fi
+
+    mkdir -p -- "$(dirname -- "$evidence")"
+    umask 077
+    {
+        printf 'schema\t1\n'
+        printf 'captured_utc\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'legacy_container\t%s\n' "$LEGACY_CONTAINER"
+        printf 'legacy_image\t%s\n' "$image"
+        printf 'legacy_was_running\ttrue\n'
+        printf 'data_volume\t%s\n' "$volume"
+        printf 'https_host_ip\t%s\n' "$host_ip"
+        printf 'https_port\t%s\n' "$port"
+        printf 'https_binding\t%s:%s\n' "$host_ip" "$port"
+        printf 'certificate_path\t%s\n' "$LEGACY_CERT_PATH"
+        printf 'certificate_sha256\t%s\n' "$cert_sha"
+        printf 'private_key_present\t%s\n' "$key_present"
+        printf 'control_plane_instance_id\t%s\n' "$instance_id"
+    } > "$evidence"
+    chmod 600 "$evidence"
+
+    log "Captured safe pre-migration evidence: $evidence"
+    log "No setup token, password, private key, recovery code or database content was recorded."
+}
+
+verify_rollback() {
+    local evidence="$1"
+    assert_evidence_file "$evidence"
+    require_command docker
+    require_command awk
+
+    local expected_volume expected_cert actual_volume actual_cert
+    expected_volume="$(evidence_value "$evidence" data_volume)"
+    expected_cert="$(evidence_value "$evidence" certificate_sha256)"
+
+    ! container_exists "$CANONICAL_CONTAINER" || fail "Canonical container still exists after rollback."
+    container_exists "$LEGACY_CONTAINER" || fail "Legacy container was not restored."
+    container_running "$LEGACY_CONTAINER" || fail "Legacy container was restored but is not running."
+    actual_volume="$(container_data_volume "$LEGACY_CONTAINER")"
+    [[ "$actual_volume" == "$expected_volume" ]] || fail "Rollback volume changed from '$expected_volume' to '$actual_volume'."
+    actual_cert="$(volume_file_sha256 "$actual_volume" "$LEGACY_CERT_PATH")"
+    [[ "$actual_cert" == "$expected_cert" ]] || fail "Rollback certificate fingerprint changed."
+
+    log "PASS: failed migration rolled back to the running legacy container with retained volume and certificate."
+}
+
+verify_canonical() {
+    local evidence="$1"
+    assert_evidence_file "$evidence"
+    require_command docker
+    require_command curl
+    require_command python3
+    require_command awk
+
+    local expected_volume expected_cert expected_instance actual_volume actual_cert host_ip port runtime mode ui validation instance
+    expected_volume="$(evidence_value "$evidence" data_volume)"
+    expected_cert="$(evidence_value "$evidence" certificate_sha256)"
+    expected_instance="$(evidence_value "$evidence" control_plane_instance_id)"
+
+    container_exists "$CANONICAL_CONTAINER" || fail "Canonical container does not exist after migration."
+    container_running "$CANONICAL_CONTAINER" || fail "Canonical container exists but is not running."
+    ! container_exists "$LEGACY_CONTAINER" || fail "Legacy container record still exists after accepted migration."
+
+    actual_volume="$(container_data_volume "$CANONICAL_CONTAINER")"
+    [[ "$actual_volume" == "$expected_volume" ]] || fail "Canonical runtime does not use retained volume '$expected_volume' (found '$actual_volume')."
+    actual_cert="$(volume_file_sha256 "$actual_volume" "$LEGACY_CERT_PATH")"
+    [[ "$actual_cert" == "$expected_cert" ]] || fail "Canonical runtime certificate fingerprint differs from pre-migration evidence."
+
+    host_ip="$(container_https_host_ip "$CANONICAL_CONTAINER")"
+    port="$(container_https_port "$CANONICAL_CONTAINER")"
+    [[ -n "$port" ]] || fail "Could not determine canonical HTTPS port."
+    verify_private_admin "$CANONICAL_CONTAINER" >/dev/null
+    curl --insecure --fail --silent --show-error "https://${host_ip}:${port}/health/live" >/dev/null
+    runtime="$(runtime_json "$port" "$host_ip")"
+    mode="$(json_field "$runtime" runtimeMode)"
+    ui="$(json_field "$runtime" uiDeliveryMode)"
+    validation="$(json_field "$runtime" validationState)"
+    instance="$(json_field "$runtime" controlPlaneInstanceId)"
+
+    [[ "$mode" == "containerized-production" ]] || fail "Expected containerized-production, got '$mode'."
+    [[ "$ui" == "embedded-spa" ]] || fail "Expected embedded-spa, got '$ui'."
+    [[ "$validation" == "valid" ]] || fail "Expected valid runtime context, got '$validation'."
+    [[ -n "$instance" ]] || fail "Canonical runtime did not project a Control Plane instance ID."
+    if [[ -n "$expected_instance" ]]; then
+        [[ "$instance" == "$expected_instance" ]] || fail "Control Plane instance identity changed across retained-volume migration."
+    fi
+
+    log "PASS: canonical Control Plane is healthy, production-shaped, privately bound, uses the retained legacy volume/certificate, and the legacy container record is retired."
+}
+
+main() {
+    [[ $# -ge 1 ]] || { usage; exit 2; }
+    case "$1" in
+        source-audit)
+            [[ $# -eq 1 ]] || fail "source-audit takes no additional arguments."
+            source_audit
+            ;;
+        status)
+            [[ $# -eq 1 ]] || fail "status takes no additional arguments."
+            status_command
+            ;;
+        capture-legacy)
+            [[ $# -eq 2 ]] || fail "capture-legacy requires an evidence file path."
+            capture_legacy "$2"
+            ;;
+        verify-rollback)
+            [[ $# -eq 2 ]] || fail "verify-rollback requires an evidence file path."
+            verify_rollback "$2"
+            ;;
+        verify-canonical)
+            [[ $# -eq 2 ]] || fail "verify-canonical requires an evidence file path."
+            verify_canonical "$2"
+            ;;
+        verify-private-admin)
+            [[ $# -ge 2 && $# -le 4 ]] || fail "verify-private-admin requires <container> and optional [ssh-tunnel|trusted-lan] [expected-address]."
+            verify_private_admin "$2" "${3:-}" "${4:-}"
+            ;;
+        -h|--help|help)
+            usage
+            ;;
+        *)
+            usage >&2
+            fail "Unknown command: $1"
+            ;;
+    esac
+}
+
+main "$@"

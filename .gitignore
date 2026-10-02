@@ -1,0 +1,11 @@
+.env
+.env.bak
+
+
+# Local MEM slice artifacts
+/MEM-*.zip
+/mem-web-source-*.zip
+/mem-installer-source-*.zip
+
+# MEM developer environment state
+/dev/.state/

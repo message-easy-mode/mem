@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>mem-migrate</AssemblyName>
+    <RootNamespace>Mem.Migrate.Cli</RootNamespace>
+    <Version>0.2.0-alpha.1</Version>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mem.Migrate.Application/Mem.Migrate.Application.csproj" />
+    <ProjectReference Include="../Mem.Migrate.Core/Mem.Migrate.Core.csproj" />
+    <ProjectReference Include="../Mem.Migrate.Infrastructure/Mem.Migrate.Infrastructure.csproj" />
+    <ProjectReference Include="../Mem.Migrate.Legacy.V010/Mem.Migrate.Legacy.V010.csproj" />
+  </ItemGroup>
+</Project>

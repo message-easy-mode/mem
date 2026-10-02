@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Mem.Migrate.Core</AssemblyName>
+    <RootNamespace>Mem.Migrate.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

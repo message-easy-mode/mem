@@ -1,0 +1,7 @@
+# Explicit tracked paths omitted from the public source snapshot after their
+# containing top-level root has been approved for publication.
+#
+# Paths are repository-relative. Directory exclusions end with '/'.
+# Wildcards are deliberately unsupported: every nested exclusion is reviewed.
+installer/.vscode/
+installer/src/.vscode/

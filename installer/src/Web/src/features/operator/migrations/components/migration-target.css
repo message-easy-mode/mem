@@ -1,0 +1,90 @@
+/* Migration-only layout. Container widths account for the persistent side nav.
+   One set of rows/actions stays mounted at every width; no duplicated dialogs. */
+.migration-target-inventory {
+  container: migration-inventory / inline-size;
+  min-inline-size: 0;
+}
+
+.migration-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@container migration-inventory (max-width: 25.999rem) {
+  .migration-summary-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container migration-inventory (min-width: 56rem) {
+  .migration-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.migration-inventory-results {
+  container: migration-results / inline-size;
+  min-inline-size: 0;
+}
+
+.migration-inventory-table {
+  inline-size: 100%;
+  table-layout: fixed;
+}
+
+.migration-inventory-table th,
+.migration-inventory-table td {
+  min-inline-size: 0;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.migration-inventory-identity-head { inline-size: 35%; }
+.migration-inventory-actions-head { inline-size: 20%; }
+.migration-inventory-actions > div { flex-wrap: wrap; }
+
+@container migration-results (max-width: 47.999rem) {
+  .migration-inventory-table,
+  .migration-inventory-table tbody { display: block; }
+
+  /* Keep the table's column headings available to assistive technology. */
+  .migration-inventory-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .migration-inventory-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .migration-inventory-identity { grid-column: 1; grid-row: 1; }
+  .migration-inventory-progress { grid-column: 1 / -1; grid-row: 2; padding-top: 0; }
+  .migration-inventory-actions { grid-column: 2; grid-row: 1; }
+}
+
+@container migration-results (max-width: 29.999rem) {
+  .migration-inventory-table tbody tr { grid-template-columns: minmax(0, 1fr); }
+  .migration-inventory-actions { grid-column: 1; grid-row: 3; padding-top: 0; }
+  .migration-inventory-actions > div { justify-content: flex-start; }
+}
+
+/* The accordion already provides the stage container. Avoid a second heavy
+   card around its controls without concealing titles, warnings or evidence. */
+.migration-stage-content > [data-slot="card"] {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  padding-block: 0;
+  gap: 0.75rem;
+}
+.migration-stage-content > [data-slot="card"] > [data-slot="card-header"],
+.migration-stage-content > [data-slot="card"] > [data-slot="card-content"] {
+  padding-inline: 0;
+}

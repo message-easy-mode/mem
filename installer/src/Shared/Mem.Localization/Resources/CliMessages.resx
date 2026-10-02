@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="cli.help.title" xml:space="preserve"><value>Matrix Easy Mode CLI</value></data>
+  <data name="cli.help.usage" xml:space="preserve"><value>Usage:</value></data>
+  <data name="cli.help.options" xml:space="preserve"><value>Options:</value></data>
+  <data name="cli.help.environment" xml:space="preserve"><value>Environment:</value></data>
+  <data name="cli.help.planned" xml:space="preserve"><value>Planned:</value></data>
+  <data name="cli.help.option.host-agent-url" xml:space="preserve"><value>  --host-agent-url &lt;url&gt;    Default: http://localhost:7105</value></data>
+  <data name="cli.help.option.installer-token" xml:space="preserve"><value>  --installer-token &lt;token&gt; Required for current control-plane commands; stores auth cookie in-memory</value></data>
+  <data name="cli.help.option.language" xml:space="preserve"><value>  --language &lt;en|de&gt;        Human output language. Default: OS language, then English</value></data>
+  <data name="cli.help.option.json" xml:space="preserve"><value>  --json                    Use stable machine-readable JSON output.</value></data>
+  <data name="cli.help.environment.host-agent-url" xml:space="preserve"><value>  MEM_HOST_AGENT_URL</value></data>
+  <data name="cli.help.environment.installer-token" xml:space="preserve"><value>  MEM_INSTALLER_TOKEN</value></data>
+  <data name="cli.help.environment.language" xml:space="preserve"><value>  MEM_CLI_LANGUAGE           Human output language for this shell session.</value></data>
+  <data name="cli.help.planned.stack-compare" xml:space="preserve"><value>  mem stack compare &lt;slug-or-id&gt; [--json]</value></data>
+  <data name="cli.help.commands" xml:space="preserve"><value>Commands:</value></data>
+  <data name="cli.help.authority.line1" xml:space="preserve"><value>Normal authority: use mem login --device with a named profile.</value></data>
+  <data name="cli.help.authority.line2" xml:space="preserve"><value>Inspect the session with mem account show; revoke it with mem logout.</value></data>
+  <data name="cli.help.stable-command-note" xml:space="preserve"><value>Command names, flags, environment variables, JSON fields, and status/error codes remain stable English.</value></data>
+  <data name="cli.help.option.profile" xml:space="preserve"><value>  --profile &lt;name&gt;           Use a named local profile.</value></data>
+  <data name="cli.help.option.server" xml:space="preserve"><value>  --server &lt;url&gt;             Override the profile server for one command.</value></data>
+  <data name="cli.help.environment.server-url" xml:space="preserve"><value>  MEM_SERVER_URL             Default server for commands without a profile.</value></data>
+  <data name="cli.config.language.title" xml:space="preserve"><value>MEM CLI local language preference</value></data>
+  <data name="cli.config.language.value" xml:space="preserve"><value>Language: {{language}}</value></data>
+  <data name="cli.config.language.system-default" xml:space="preserve"><value>system default</value></data>
+  <data name="cli.config.language.saved" xml:space="preserve"><value>Local CLI language preference saved: {{language}}</value></data>
+  <data name="cli.config.language.json-contracts" xml:space="preserve"><value>This changes human output only. JSON contracts remain English.</value></data>
+  <data name="cli.login.title" xml:space="preserve"><value>MEM CLI device login</value></data>
+  <data name="cli.login.profile-line" xml:space="preserve"><value>Profile: {{profileName}}</value></data>
+  <data name="cli.login.server-line" xml:space="preserve"><value>Server: {{serverUrl}}</value></data>
+  <data name="cli.login.open-browser" xml:space="preserve"><value>Open this page in a browser:</value></data>
+  <data name="cli.login.enter-device-code" xml:space="preserve"><value>Enter this device code:</value></data>
+  <data name="cli.login.waiting-approval" xml:space="preserve"><value>Waiting for browser approval...</value></data>
+  <data name="cli.login.existing-session-stored" xml:space="preserve"><value>A MEM CLI device session is already stored for profile: {{profileName}}</value></data>
+  <data name="cli.login.existing-no-new-authorization" xml:space="preserve"><value>No new device authorization was started.</value></data>
+  <data name="cli.login.approved" xml:space="preserve"><value>Device login approved for profile: {{profileName}}</value></data>
+  <data name="cli.login.credential-stored" xml:space="preserve"><value>The device credential was stored securely in the OS secret store.</value></data>
+  <data name="cli.login.idle-expiry" xml:space="preserve"><value>Session idle expiry: {{expiresAtUtc}}</value></data>
+  <data name="cli.login.absolute-expiry" xml:space="preserve"><value>Session absolute expiry: {{expiresAtUtc}}</value></data>
+  <data name="cli.login.error.interactive-required" xml:space="preserve"><value>Device login is interactive and does not support --json.</value></data>
+  <data name="cli.login.error.device-required" xml:space="preserve"><value>Device login requires --device. Use: mem login --device</value></data>
+  <data name="cli.login.error.profile-required" xml:space="preserve"><value>Create or select a local MEM CLI profile before signing in.</value></data>
+  <data name="cli.login.error.profile-invalid" xml:space="preserve"><value>The selected profile or server URL is not valid for secure device login.</value></data>
+  <data name="cli.login.error.secure-store-unavailable" xml:space="preserve"><value>A usable OS secret store is required for device login. No device authorization was started.</value></data>
+  <data name="cli.login.error.secure-store-read-unavailable" xml:space="preserve"><value>The OS secret store could not be read safely. No device authorization was started.</value></data>
+  <data name="cli.login.error.cancelled" xml:space="preserve"><value>Device login was cancelled. No credential was stored.</value></data>
+  <data name="cli.login.error.unavailable" xml:space="preserve"><value>Device login could not be completed safely.</value></data>
+  <data name="cli.login.error.unreachable-waiting" xml:space="preserve"><value>The control plane could not be reached while waiting for browser approval.</value></data>
+  <data name="cli.login.error.authorization-denied" xml:space="preserve"><value>Device authorization was denied in the browser. No credential was stored.</value></data>
+  <data name="cli.login.error.authorization-expired" xml:space="preserve"><value>Device authorization expired before browser approval. No credential was stored.</value></data>
+  <data name="cli.login.error.authorization-failed" xml:space="preserve"><value>Device authorization could not be completed safely. No credential was stored.</value></data>
+  <data name="cli.login.error.invalid-credential" xml:space="preserve"><value>The control plane returned an invalid device credential. No credential was stored.</value></data>
+  <data name="cli.login.error.secure-store-write-failed" xml:space="preserve"><value>The approved device credential could not be stored safely.</value></data>
+  <data name="cli.login.error.rate-limited" xml:space="preserve"><value>Device login is temporarily rate limited. Wait and try again.</value></data>
+  <data name="cli.login.error.unreachable-start" xml:space="preserve"><value>The control plane could not be reached to start device login.</value></data>
+  <data name="cli.login.error.authorization-unavailable" xml:space="preserve"><value>Device login could not be started safely.</value></data>
+
+  <data name="cli.error.missing-language-value" xml:space="preserve"><value>A value is required for --language. Supported values: en, de.</value></data>
+  <data name="cli.error.unsupported-language" xml:space="preserve"><value>Unsupported language '{{language}}'. Supported values: en, de.</value></data>
+  <data name="cli.error.installer-token-required" xml:space="preserve"><value>A control-plane installer token is required. Supply --installer-token or set MEM_INSTALLER_TOKEN.</value></data>
+  <data name="cli.error.installer-token-rejected" xml:space="preserve"><value>The control-plane installer token was not accepted. Check the current token and retry.</value></data>
+  <data name="cli.error.agent-secret-retired" xml:space="preserve"><value>--agent-secret is retired and cannot authorize this command. Use --installer-token or set MEM_INSTALLER_TOKEN during the temporary transition.</value></data>
+  <data name="cli.backups.catalog-title" xml:space="preserve"><value>Backup Catalog</value></data>
+  <data name="cli.backups.matching-count.one" xml:space="preserve"><value>{{count}} matching backup</value></data>
+  <data name="cli.backups.matching-count.other" xml:space="preserve"><value>{{count}} matching backups</value></data>
+  <data name="cli.backups.title.list" xml:space="preserve"><value>MEM Backup Catalog</value></data>
+  <data name="cli.backups.title.entry" xml:space="preserve"><value>MEM Backup Catalog Entry</value></data>
+  <data name="cli.backups.title.lifecycle" xml:space="preserve"><value>MEM Backup Catalog Lifecycle</value></data>
+  <data name="cli.backups.title.uploaded-zip" xml:space="preserve"><value>MEM Uploaded ZIP Provenance</value></data>
+  <data name="cli.backups.section.matrix-identity" xml:space="preserve"><value>Matrix identity</value></data>
+  <data name="cli.backups.section.advisories" xml:space="preserve"><value>Advisories</value></data>
+  <data name="cli.backups.section.original-archive" xml:space="preserve"><value>Original uploaded ZIP archive</value></data>
+  <data name="cli.backups.section.validation" xml:space="preserve"><value>Validation</value></data>
+  <data name="cli.backups.section.manifest-identity" xml:space="preserve"><value>Manifest identity</value></data>
+  <data name="cli.backups.section.retention" xml:space="preserve"><value>Retention</value></data>
+  <data name="cli.backups.section.validation-errors" xml:space="preserve"><value>Validation errors</value></data>
+  <data name="cli.backups.section.warnings" xml:space="preserve"><value>Warnings</value></data>
+  <data name="cli.backups.field" xml:space="preserve"><value>{{label}}: {{value}}</value></data>
+  <data name="cli.backups.field.indented" xml:space="preserve"><value>  {{label}}: {{value}}</value></data>
+  <data name="cli.backups.field.provenance" xml:space="preserve"><value>{{label}}: {{value}} (provenance only)</value></data>
+  <data name="cli.backups.field.provenance-indented" xml:space="preserve"><value>  {{label}}: {{value}} (provenance only)</value></data>
+  <data name="cli.backups.bullet" xml:space="preserve"><value>  - {{value}}</value></data>
+  <data name="cli.backups.advisory-line" xml:space="preserve"><value>  [{{category}}] {{title}}: {{message}}</value></data>
+  <data name="cli.backups.list.empty" xml:space="preserve"><value>No Backup Catalog entries found.</value></data>
+  <data name="cli.backups.entry.not-found" xml:space="preserve"><value>Backup Catalog entry was not found.</value></data>
+  <data name="cli.backups.lifecycle.not-found" xml:space="preserve"><value>Backup Catalog lifecycle information was not found.</value></data>
+  <data name="cli.backups.table.catalog-entry-id" xml:space="preserve"><value>CATALOG ENTRY ID</value></data>
+  <data name="cli.backups.table.origin" xml:space="preserve"><value>ORIGIN</value></data>
+  <data name="cli.backups.table.display-name" xml:space="preserve"><value>DISPLAY NAME</value></data>
+  <data name="cli.backups.table.source-stack" xml:space="preserve"><value>SOURCE STACK</value></data>
+  <data name="cli.backups.table.captured" xml:space="preserve"><value>CAPTURED</value></data>
+  <data name="cli.backups.table.payload" xml:space="preserve"><value>PAYLOAD</value></data>
+  <data name="cli.backups.table.integrity" xml:space="preserve"><value>INTEGRITY</value></data>
+  <data name="cli.backups.table.size" xml:space="preserve"><value>SIZE</value></data>
+  <data name="cli.backups.table.warnings" xml:space="preserve"><value>WARNINGS</value></data>
+  <data name="cli.backups.label.source" xml:space="preserve"><value>Source</value></data>
+  <data name="cli.backups.label.status" xml:space="preserve"><value>Status</value></data>
+  <data name="cli.backups.label.entries" xml:space="preserve"><value>Entries</value></data>
+  <data name="cli.backups.label.detail" xml:space="preserve"><value>Detail</value></data>
+  <data name="cli.backups.label.catalog-entry-id" xml:space="preserve"><value>Catalog entry ID</value></data>
+  <data name="cli.backups.label.display-name" xml:space="preserve"><value>Display name</value></data>
+  <data name="cli.backups.label.origin" xml:space="preserve"><value>Origin</value></data>
+  <data name="cli.backups.label.source-stack" xml:space="preserve"><value>Source stack</value></data>
+  <data name="cli.backups.label.source-backup" xml:space="preserve"><value>Source backup</value></data>
+  <data name="cli.backups.label.captured-utc" xml:space="preserve"><value>Captured UTC</value></data>
+  <data name="cli.backups.label.created-utc" xml:space="preserve"><value>Created UTC</value></data>
+  <data name="cli.backups.label.imported-utc" xml:space="preserve"><value>Imported UTC</value></data>
+  <data name="cli.backups.label.materialised-utc" xml:space="preserve"><value>Materialised UTC</value></data>
+  <data name="cli.backups.label.payload-state" xml:space="preserve"><value>Payload state</value></data>
+  <data name="cli.backups.label.payload-size" xml:space="preserve"><value>Payload size</value></data>
+  <data name="cli.backups.label.integrity" xml:space="preserve"><value>Integrity</value></data>
+  <data name="cli.backups.label.warnings" xml:space="preserve"><value>Warnings</value></data>
+  <data name="cli.backups.label.integrity-detail" xml:space="preserve"><value>Integrity detail</value></data>
+  <data name="cli.backups.label.upload-reference" xml:space="preserve"><value>Upload reference</value></data>
+  <data name="cli.backups.label.server-name" xml:space="preserve"><value>Server name</value></data>
+  <data name="cli.backups.label.matrix-host" xml:space="preserve"><value>Matrix host</value></data>
+  <data name="cli.backups.label.element-host" xml:space="preserve"><value>Element host</value></data>
+  <data name="cli.backups.label.payload-present" xml:space="preserve"><value>Payload present</value></data>
+  <data name="cli.backups.label.active-restore" xml:space="preserve"><value>Active restore</value></data>
+  <data name="cli.backups.label.active-restore-session" xml:space="preserve"><value>Active restore session</value></data>
+  <data name="cli.backups.label.can-permanently-delete" xml:space="preserve"><value>Can permanently delete</value></data>
+  <data name="cli.backups.label.delete-block" xml:space="preserve"><value>Delete block</value></data>
+  <data name="cli.backups.label.validation-reference" xml:space="preserve"><value>Validation reference</value></data>
+  <data name="cli.backups.label.archive-state" xml:space="preserve"><value>Archive state</value></data>
+  <data name="cli.backups.label.uploaded-file" xml:space="preserve"><value>Uploaded file</value></data>
+  <data name="cli.backups.label.archive-size" xml:space="preserve"><value>Archive size</value></data>
+  <data name="cli.backups.label.source-kind" xml:space="preserve"><value>Source kind</value></data>
+  <data name="cli.backups.label.recorded-utc" xml:space="preserve"><value>Recorded UTC</value></data>
+  <data name="cli.backups.label.summary" xml:space="preserve"><value>Summary</value></data>
+  <data name="cli.backups.label.zip-entries" xml:space="preserve"><value>ZIP entries</value></data>
+  <data name="cli.backups.label.uncompressed-size" xml:space="preserve"><value>Uncompressed size</value></data>
+  <data name="cli.backups.label.manifest-present" xml:space="preserve"><value>Manifest present</value></data>
+  <data name="cli.backups.label.checksums-present" xml:space="preserve"><value>Checksums present</value></data>
+  <data name="cli.backups.label.passed-checks" xml:space="preserve"><value>Passed checks</value></data>
+  <data name="cli.backups.label.failed-checks" xml:space="preserve"><value>Failed checks</value></data>
+  <data name="cli.backups.label.version" xml:space="preserve"><value>Version</value></data>
+  <data name="cli.backups.label.mem-version" xml:space="preserve"><value>MEM version</value></data>
+  <data name="cli.backups.label.stack-display-name" xml:space="preserve"><value>Stack display name</value></data>
+  <data name="cli.backups.label.matrix-server-name" xml:space="preserve"><value>Matrix server name</value></data>
+  <data name="cli.backups.label.included-files" xml:space="preserve"><value>Included files</value></data>
+  <data name="cli.backups.label.can-delete" xml:space="preserve"><value>Can delete</value></data>
+  <data name="cli.backups.label.removed-utc" xml:space="preserve"><value>Removed UTC</value></data>
+  <data name="cli.backups.label.removed-by" xml:space="preserve"><value>Removed by</value></data>
+  <data name="cli.backups.value.yes" xml:space="preserve"><value>yes</value></data>
+  <data name="cli.backups.value.no" xml:space="preserve"><value>no</value></data>
+  <data name="cli.backups.value.unknown" xml:space="preserve"><value>unknown</value></data>
+  <data name="cli.backups.value.none" xml:space="preserve"><value>none</value></data>
+  <data name="cli.backups.value.not-recorded" xml:space="preserve"><value>not recorded</value></data>
+  <data name="cli.backups.value.not-removed" xml:space="preserve"><value>not removed</value></data>
+  <data name="cli.backups.value.ok" xml:space="preserve"><value>ok</value></data>
+  <data name="cli.backups.value.error" xml:space="preserve"><value>error</value></data>
+  <data name="cli.backups.value.unreachable" xml:space="preserve"><value>unreachable</value></data>
+  <data name="cli.backups.value.warning" xml:space="preserve"><value>warning</value></data>
+  <data name="cli.backups.value.valid" xml:space="preserve"><value>valid</value></data>
+  <data name="cli.backups.value.invalid" xml:space="preserve"><value>invalid</value></data>
+  <data name="cli.backups.value.available" xml:space="preserve"><value>available</value></data>
+  <data name="cli.backups.value.materialising" xml:space="preserve"><value>materialising</value></data>
+  <data name="cli.backups.value.failed" xml:space="preserve"><value>failed</value></data>
+  <data name="cli.backups.value.removed" xml:space="preserve"><value>removed</value></data>
+  <data name="cli.backups.value.retained" xml:space="preserve"><value>retained</value></data>
+  <data name="cli.backups.value.missing" xml:space="preserve"><value>missing</value></data>
+  <data name="cli.backups.value.ambiguous" xml:space="preserve"><value>ambiguous</value></data>
+  <data name="cli.backups.value.local-captured" xml:space="preserve"><value>local-captured</value></data>
+  <data name="cli.backups.value.imported-zip" xml:space="preserve"><value>imported-zip</value></data>
+  <data name="cli.backups.value.uploaded-zip" xml:space="preserve"><value>uploaded-zip</value></data>
+  <data name="cli.backups.error.list-does-not-support-stack" xml:space="preserve"><value>The catalog-first backups list does not support --stack.</value></data>
+  <data name="cli.backups.error.list-use-inspect" xml:space="preserve"><value>Use mem backups inspect &lt;catalog-entry-id&gt; for one catalog entry.</value></data>
+  <data name="cli.backups.error.missing-catalog-entry-id" xml:space="preserve"><value>Missing catalog entry ID.</value></data>
+  <data name="cli.backups.error.inspect-requires-catalog-entry" xml:space="preserve"><value>Backups inspect is now catalog-first and accepts one catalog entry ID. Use:</value></data>
+  <data name="cli.backups.error.lifecycle-requires-catalog-entry" xml:space="preserve"><value>Backups lifecycle accepts one catalog entry ID. Use:</value></data>
+  <data name="cli.backups.error.missing-validation-reference" xml:space="preserve"><value>Missing validation reference.</value></data>
+  <data name="cli.backups.title.import" xml:space="preserve"><value>MEM Backup Catalog Import</value></data>
+  <data name="cli.backups.title.export" xml:space="preserve"><value>MEM Backup Catalog Export</value></data>
+  <data name="cli.backups.title.permanent-delete" xml:space="preserve"><value>MEM Backup Catalog Permanent Delete</value></data>
+  <data name="cli.backups.title.uploaded-zip-delete" xml:space="preserve"><value>MEM Uploaded ZIP Archive Delete</value></data>
+  <data name="cli.backups.section.import-integrity" xml:space="preserve"><value>Integrity</value></data>
+  <data name="cli.backups.section.import-manifest" xml:space="preserve"><value>Manifest</value></data>
+  <data name="cli.backups.section.checks" xml:space="preserve"><value>Checks</value></data>
+  <data name="cli.backups.section.catalog-first-next-steps" xml:space="preserve"><value>Catalog-first next steps</value></data>
+  <data name="cli.backups.label.materialisation-action" xml:space="preserve"><value>Materialisation action</value></data>
+  <data name="cli.backups.label.zip-size" xml:space="preserve"><value>ZIP size</value></data>
+  <data name="cli.backups.label.checksum-lines" xml:space="preserve"><value>Checksum lines</value></data>
+  <data name="cli.backups.label.checked-files" xml:space="preserve"><value>Checked files</value></data>
+  <data name="cli.backups.label.missing-files" xml:space="preserve"><value>Missing files</value></data>
+  <data name="cli.backups.label.kind" xml:space="preserve"><value>Kind</value></data>
+  <data name="cli.backups.label.database-present" xml:space="preserve"><value>Database present</value></data>
+  <data name="cli.backups.label.matrix-present" xml:space="preserve"><value>Matrix present</value></data>
+  <data name="cli.backups.label.media-files" xml:space="preserve"><value>Media files</value></data>
+  <data name="cli.backups.label.media-bytes" xml:space="preserve"><value>Media bytes</value></data>
+  <data name="cli.backups.label.element-present" xml:space="preserve"><value>Element present</value></data>
+  <data name="cli.backups.label.export-id" xml:space="preserve"><value>Export ID</value></data>
+  <data name="cli.backups.label.download-name" xml:space="preserve"><value>Download name</value></data>
+  <data name="cli.backups.label.output-path" xml:space="preserve"><value>Output path</value></data>
+  <data name="cli.backups.label.export-size" xml:space="preserve"><value>Export size</value></data>
+  <data name="cli.backups.label.bytes-written" xml:space="preserve"><value>Bytes written</value></data>
+  <data name="cli.backups.label.deleted-by" xml:space="preserve"><value>Deleted by</value></data>
+  <data name="cli.backups.label.payload-deleted" xml:space="preserve"><value>Payload deleted</value></data>
+  <data name="cli.backups.label.original-archive-deleted" xml:space="preserve"><value>Original archive deleted</value></data>
+  <data name="cli.backups.label.portable-exports-deleted" xml:space="preserve"><value>Portable exports deleted</value></data>
+  <data name="cli.backups.label.detached-restore-attempts" xml:space="preserve"><value>Detached restore attempts</value></data>
+  <data name="cli.backups.label.deleted-utc" xml:space="preserve"><value>Deleted UTC</value></data>
+  <data name="cli.backups.label.bytes-deleted" xml:space="preserve"><value>Bytes deleted</value></data>
+  <data name="cli.backups.value.created" xml:space="preserve"><value>created</value></data>
+  <data name="cli.backups.value.deleted" xml:space="preserve"><value>deleted</value></data>
+  <data name="cli.backups.value.blocked" xml:space="preserve"><value>blocked</value></data>
+  <data name="cli.backups.value.write-failed" xml:space="preserve"><value>write failed</value></data>
+  <data name="cli.backups.value.downloaded" xml:space="preserve"><value>downloaded</value></data>
+  <data name="cli.backups.value.not-created" xml:space="preserve"><value>not created</value></data>
+  <data name="cli.backups.value.not-available" xml:space="preserve"><value>not available</value></data>
+  <data name="cli.backups.value.not-written" xml:space="preserve"><value>not written</value></data>
+  <data name="cli.backups.check.pass" xml:space="preserve"><value>PASS</value></data>
+  <data name="cli.backups.check.fail" xml:space="preserve"><value>FAIL</value></data>
+  <data name="cli.backups.error.delete-requires-catalog-entry" xml:space="preserve"><value>Backups delete is now catalog-first and accepts one catalog entry id.
+Use: mem backups delete &lt;catalog-entry-id&gt; --yes</value></data>
+  <data name="cli.backups.error.refuse-permanent-delete-without-yes" xml:space="preserve"><value>Refusing to permanently delete a Backup Catalog entry without --yes.</value></data>
+  <data name="cli.backups.error.permanent-delete-impact" xml:space="preserve"><value>This removes the managed recovery payload, any retained original ZIP archive, generated portable exports, and the catalog record.</value></data>
+  <data name="cli.backups.error.permanent-delete-active-restore" xml:space="preserve"><value>Active restore workspaces block deletion. Terminal restore history remains as detached history.</value></data>
+  <data name="cli.backups.error.missing-catalog-entry-or-output-path" xml:space="preserve"><value>Missing catalog entry ID or --out path.</value></data>
+  <data name="cli.backups.error.export-requires-catalog-entry" xml:space="preserve"><value>Backups export is now catalog-first and accepts one catalog entry id.
+Use: mem backups export &lt;catalog-entry-id&gt; --out &lt;path&gt;</value></data>
+  <data name="cli.backups.error.missing-portable-zip-path" xml:space="preserve"><value>Missing portable ZIP path.</value></data>
+  <data name="cli.backups.error.unknown-command" xml:space="preserve"><value>Unknown backups command.</value></data>
+  <data name="cli.backups.error.unknown-uploads-command" xml:space="preserve"><value>Unknown backups uploads command.</value></data>
+  <data name="cli.backups.error.refuse-upload-delete-without-yes" xml:space="preserve"><value>Refusing to delete an uploaded ZIP without --yes.</value></data>
+  <data name="cli.backups.error.upload-delete-impact" xml:space="preserve"><value>This removes the retained upload archive only. Materialised catalog payload and durable restore history are separate lifecycles.</value></data>
+  <data name="cli.backups.next.inspect" xml:space="preserve"><value>  Inspect this backup: mem backups inspect {{catalogEntryId}}</value></data>
+  <data name="cli.backups.next.inspect-uploaded-zip" xml:space="preserve"><value>  Inspect retained ZIP provenance: mem backups uploads inspect {{validationId}}</value></data>
+  <data name="cli.backups.next.start-restore" xml:space="preserve"><value>  Start restore work only from the Backup Catalog entry.</value></data>
+  <data name="cli.backups.delete.success.source-removed" xml:space="preserve"><value>The catalog source was permanently deleted.</value></data>
+  <data name="cli.backups.delete.success.history-retained" xml:space="preserve"><value>Terminal restore history remains available without a catalog-source link.</value></data>
+  <data name="cli.backups.upload-delete.success.archive-removed" xml:space="preserve"><value>The retained Uploaded ZIP archive was removed.</value></data>
+  <data name="cli.backups.upload-delete.success.catalog-retained" xml:space="preserve"><value>Materialised Backup Catalog payload and durable restore history remain separate.</value></data>
+</root>

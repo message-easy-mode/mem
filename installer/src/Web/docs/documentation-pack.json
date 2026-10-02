@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "sourceContentVersion": "0.2.0",
+  "generatedAtUtc": "2026-09-13T19:33:42Z",
+  "reviewRequired": false,
+  "reviewReason": "Current non-legacy English and German documentation is reviewed for MEM 0.2.x. Historical MatrixEasyMode material is preserved only as explicitly legacy documentation.",
+  "generatorVersion": "1.2.0",
+  "currentProductLine": "0.2.x"
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "MemInstaller.Api (http)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://127.0.0.1:7105",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "MEM_RUNTIME_MODE": "local-development",
+        "MEM_STATE_ROOT": "../../../dev/.state/interactive/data",
+        "MEM_DATA_ROOT": "../../../dev/.state/interactive/mem-data",
+        "MEM_CONTROL_PLANE_SETUP_TOKEN_PATH": "../../../dev/.state/interactive/data/setup-token",
+        "InstallerAuth__DevelopmentSetupToken": "",
+        "MEM_DEV_ALLOW_SHARED_DOCKER_HOST": "false",
+        "MemRuntime__UiDeliveryMode": "vite",
+        "Aio__SqlitePath": "../dev/.state/interactive/data/mem-control-plane.dev.db",
+        "DataProtection__KeyRingPath": "../dev/.state/interactive/data/data-protection-keys",
+        "Certificates__Storage__RootPath": "../../../dev/.state/interactive/data/certificates",
+        "Diagnostics__Logging__FilePath": "../dev/.state/interactive/data/logs/control-plane/mem-control-plane-.clef",
+        "Diagnostics__SafeEvents__RootPath": "../../../dev/.state/interactive/data/diagnostics",
+        "Diagnostics__Seq__HostDataPath": "../../../dev/.state/container/host-data/seq",
+        "Diagnostics__Seq__DeliveryStatePath": "../../../dev/.state/interactive/data/diagnostics/seq-delivery.json",
+        "Diagnostics__Seq__SecretRootPath": "../../../dev/.state/interactive/data/secrets/seq",
+        "Diagnostics__Seq__BootstrapStatePath": "../../../dev/.state/interactive/data/diagnostics/seq-bootstrap.json",
+        "Diagnostics__Seq__ApiKeyFilePath": "../../../dev/.state/interactive/data/secrets/seq/ingestion-api-key",
+        "Diagnostics__Seq__AdminPasswordHashFilePath": "../../../dev/.state/interactive/data/secrets/seq/admin-password-hash",
+        "Provisioning__InstanceDataRoot": "../../../dev/.state/container/host-data/instances",
+        "Coturn__StorageRootPath": "../../../dev/.state/container/host-data/platform/coturn",
+        "Coturn__AllowRelativeDevelopmentStorageRoot": "true",
+        "MEM_LAUNCH_MODE": "direct-source"
+      }
+    },
+    "MemInstaller.Api (https)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "https://127.0.0.1:7150;http://127.0.0.1:7105",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "MEM_RUNTIME_MODE": "local-development",
+        "MEM_STATE_ROOT": "../../../dev/.state/interactive/data",
+        "MEM_DATA_ROOT": "../../../dev/.state/interactive/mem-data",
+        "MEM_CONTROL_PLANE_SETUP_TOKEN_PATH": "../../../dev/.state/interactive/data/setup-token",
+        "InstallerAuth__DevelopmentSetupToken": "",
+        "MEM_DEV_ALLOW_SHARED_DOCKER_HOST": "false",
+        "MemRuntime__UiDeliveryMode": "vite",
+        "Aio__SqlitePath": "../dev/.state/interactive/data/mem-control-plane.dev.db",
+        "DataProtection__KeyRingPath": "../dev/.state/interactive/data/data-protection-keys",
+        "Certificates__Storage__RootPath": "../../../dev/.state/interactive/data/certificates",
+        "Diagnostics__Logging__FilePath": "../dev/.state/interactive/data/logs/control-plane/mem-control-plane-.clef",
+        "Diagnostics__SafeEvents__RootPath": "../../../dev/.state/interactive/data/diagnostics",
+        "Diagnostics__Seq__HostDataPath": "../../../dev/.state/container/host-data/seq",
+        "Diagnostics__Seq__DeliveryStatePath": "../../../dev/.state/interactive/data/diagnostics/seq-delivery.json",
+        "Diagnostics__Seq__SecretRootPath": "../../../dev/.state/interactive/data/secrets/seq",
+        "Diagnostics__Seq__BootstrapStatePath": "../../../dev/.state/interactive/data/diagnostics/seq-bootstrap.json",
+        "Diagnostics__Seq__ApiKeyFilePath": "../../../dev/.state/interactive/data/secrets/seq/ingestion-api-key",
+        "Diagnostics__Seq__AdminPasswordHashFilePath": "../../../dev/.state/interactive/data/secrets/seq/admin-password-hash",
+        "Provisioning__InstanceDataRoot": "../../../dev/.state/container/host-data/instances",
+        "Coturn__StorageRootPath": "../../../dev/.state/container/host-data/platform/coturn",
+        "Coturn__AllowRelativeDevelopmentStorageRoot": "true",
+        "MEM_LAUNCH_MODE": "direct-source"
+      }
+    }
+  }
+}

@@ -1,0 +1,451 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+MEM_RELEASE_VERSION='@@VERSION@@'
+TAG='v@@VERSION@@'
+RELEASE_REPOSITORY='message-easy-mode/mem-releases'
+RELEASE_REPOSITORY_URL='https://github.com/message-easy-mode/mem-releases'
+SOURCE_REPOSITORY='message-easy-mode/mem'
+SOURCE_REPOSITORY_URL='https://github.com/message-easy-mode/mem'
+BASE_URL="https://github.com/${RELEASE_REPOSITORY}/releases/download/${TAG}"
+INSTALLER_NAME='mem-installer-@@VERSION@@-ubuntu-24.04-amd64.tar.gz'
+RELEASE_DIR=''
+INSTALLER_ARGS=()
+
+usage() {
+  cat <<EOF
+Install Message Easy Mode ${MEM_RELEASE_VERSION} using the exact release contract for ${TAG}.
+
+Default transport: GitHub Releases.
+
+Certified Control Plane host:
+  Ubuntu 24.04 LTS
+  amd64
+
+This convenience bootstrap verifies the exact versioned release metadata,
+SHA-256 inventory, installer archive structure, inner installer checksums and
+the immutable Control Plane image identity recorded by release.json.
+
+SHA-256 proves downloaded-byte integrity; it is not publisher authentication.
+For GitHub release/attestation verification, install GitHub CLI and use:
+
+  gh release verify ${TAG} -R ${RELEASE_REPOSITORY}
+  gh release verify-asset ${TAG} ${INSTALLER_NAME} -R ${RELEASE_REPOSITORY}
+  gh attestation verify ${INSTALLER_NAME} -R ${SOURCE_REPOSITORY}
+
+Usage:
+  install-mem-${MEM_RELEASE_VERSION}.sh [--release-dir <directory>] [arguments passed to the bundled installer]
+
+Bootstrap acquisition option:
+  --release-dir <directory>
+      QA/staging only. Read release.json, SHA256SUMS and the exact installer
+      bundle from an already-copied local release directory instead of GitHub.
+      The canonical public release repository, source identity, exact release
+      version, checksums and immutable Control Plane digest are still verified.
+
+All other arguments are passed unchanged to the verified bundled installer.
+For private-registry QA the bundled installer currently supports the explicit
+--control-plane-image override; this bootstrap does not rewrite release.json.
+EOF
+}
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --release-dir)
+      [[ $# -ge 2 ]] || fail "--release-dir requires a directory."
+      RELEASE_DIR="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        INSTALLER_ARGS+=("$1")
+        shift
+      done
+      ;;
+    *)
+      INSTALLER_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+for command_name in python3 sha256sum tar mktemp stat cp realpath; do
+  require_command "$command_name"
+done
+if [[ -z "$RELEASE_DIR" ]]; then
+  require_command curl
+fi
+
+if [[ -n "$RELEASE_DIR" ]]; then
+  RELEASE_DIR="$(realpath -e -- "$RELEASE_DIR")" || fail "Local release directory does not exist."
+  [[ -d "$RELEASE_DIR" ]] || fail "--release-dir is not a directory: $RELEASE_DIR"
+fi
+
+if [[ ! -r /etc/os-release ]]; then
+  fail "Cannot determine host operating system."
+fi
+
+IFS=$'\t' read -r OS_ID OS_VERSION_ID < <(
+  (
+    # Keep os-release variables inside a subshell so VERSION and other generic
+    # host metadata cannot overwrite MEM release identity.
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    printf '%s\t%s\n' "${ID:-}" "${VERSION_ID:-}"
+  )
+)
+[[ "$OS_ID" == "ubuntu" && "$OS_VERSION_ID" == "24.04" ]] ||
+  fail "MEM ${MEM_RELEASE_VERSION} is certified only for Ubuntu 24.04 LTS."
+
+if command -v dpkg >/dev/null 2>&1; then
+  ARCH="$(dpkg --print-architecture)"
+else
+  case "$(uname -m)" in
+    x86_64) ARCH="amd64" ;;
+    *) ARCH="$(uname -m)" ;;
+  esac
+fi
+[[ "$ARCH" == "amd64" ]] ||
+  fail "MEM ${MEM_RELEASE_VERSION} is certified only for amd64 hosts."
+
+umask 077
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mem-public-bootstrap.XXXXXX")"
+cleanup() {
+  rm -rf -- "$TMP_ROOT"
+}
+trap cleanup EXIT INT TERM
+
+RELEASE_JSON="$TMP_ROOT/release.json"
+CHECKSUMS="$TMP_ROOT/SHA256SUMS"
+INSTALLER_PATH="$TMP_ROOT/$INSTALLER_NAME"
+
+acquire() {
+  local name="$1" destination="$2" source
+
+  if [[ -n "$RELEASE_DIR" ]]; then
+    source="$RELEASE_DIR/$name"
+    [[ -f "$source" && ! -L "$source" ]] || \
+      fail "Local release file is missing or not a regular non-symlink file: $source"
+    printf '[release] Reading %s from local release directory\n' "$name"
+    cp -- "$source" "$destination"
+    return 0
+  fi
+
+  printf '[release] Downloading %s from %s\n' "$name" "$TAG"
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --retry 3 \
+    --proto '=https' \
+    --tlsv1.2 \
+    --output "$destination" \
+    "${BASE_URL}/${name}"
+}
+
+acquire "release.json" "$RELEASE_JSON"
+acquire "SHA256SUMS" "$CHECKSUMS"
+
+IFS=$'\t' read -r EXPECTED_INSTALLER_SHA EXPECTED_INSTALLER_SIZE CONTROL_PLANE_IMAGE < <(
+  python3 - \
+    "$RELEASE_JSON" \
+    "$CHECKSUMS" \
+    "$MEM_RELEASE_VERSION" \
+    "$TAG" \
+    "$RELEASE_REPOSITORY_URL" \
+    "$SOURCE_REPOSITORY_URL" \
+    "$INSTALLER_NAME" <<'PY_VERIFY_RELEASE'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+manifest_path, checksums_path, version, tag, release_repository_url, source_repository_url, installer_name = sys.argv[1:]
+
+def fail(message):
+    raise SystemExit(f"ERROR: {message}")
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+try:
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+except Exception as exc:
+    fail(f"release.json is not valid JSON: {exc}")
+
+product = manifest.get("product")
+if product != {
+    "id": "mem",
+    "name": "Message Easy Mode",
+    "version": version,
+    "channel": "stable" if "-" not in version else "prerelease",
+}:
+    fail("release.json product identity does not match the requested exact version")
+
+publication = manifest.get("release", {}).get("publication", {})
+if publication != {
+    "provider": "github-releases",
+    "repository": release_repository_url,
+    "tag": tag,
+}:
+    fail("release.json publication identity does not match the exact GitHub release")
+
+sources = manifest.get("sources")
+if not isinstance(sources, list) or len(sources) != 1:
+    fail("release.json must declare exactly one 0.2.0 source")
+source = sources[0]
+if source.get("id") != "control-plane" or source.get("repository") != source_repository_url:
+    fail("release.json source identity is not the canonical control-plane repository")
+if re.fullmatch(r"[0-9a-f]{40,64}", str(source.get("commit", ""))) is None:
+    fail("release.json source commit is invalid")
+
+expected_support = [{
+    "os": "ubuntu",
+    "version": "24.04",
+    "architecture": "amd64",
+}]
+if manifest.get("support", {}).get("controlPlaneHosts") != expected_support:
+    fail("release.json host support does not match Ubuntu 24.04 amd64")
+
+control_plane = manifest.get("controlPlane", {})
+if control_plane.get("sourceId") != "control-plane":
+    fail("release.json Control Plane source identity is invalid")
+image = control_plane.get("image", {})
+expected_image_repo = "ghcr.io/message-easy-mode/mem-control-plane"
+digest = image.get("digest")
+if re.fullmatch(r"sha256:[0-9a-f]{64}", str(digest)) is None:
+    fail("release.json Control Plane digest is invalid")
+expected_reference = f"{expected_image_repo}:{version}@{digest}"
+if image != {
+    "repository": expected_image_repo,
+    "tag": version,
+    "digest": digest,
+    "reference": expected_reference,
+}:
+    fail("release.json Control Plane image is not exact version+digest identity")
+
+verification = manifest.get("verification", {})
+if verification.get("checksums") != {
+    "algorithm": "sha256",
+    "fileName": "SHA256SUMS",
+}:
+    fail("release.json checksum policy is invalid")
+if verification.get("publication") != {
+    "provider": "github-releases",
+    "immutableReleaseRequired": True,
+    "releaseAttestationRequired": True,
+}:
+    fail("release.json immutable release policy is invalid")
+if verification.get("provenance") != {
+    "provider": "github-artifact-attestations",
+    "fileArtifactsRequired": True,
+    "containerImageRequired": True,
+}:
+    fail("release.json provenance policy is invalid")
+
+installer = None
+for artifact in manifest.get("artifacts", []):
+    if artifact.get("id") == "installer":
+        installer = artifact
+        break
+if installer is None:
+    fail("release.json does not contain the installer artifact")
+
+expected_platform = {
+    "os": "ubuntu",
+    "version": "24.04",
+    "architecture": "amd64",
+}
+if (
+    installer.get("kind") != "installer-bundle"
+    or installer.get("fileName") != installer_name
+    or installer.get("sourceId") != "control-plane"
+    or installer.get("platform") != expected_platform
+):
+    fail("release.json installer record is invalid")
+
+installer_sha = installer.get("sha256")
+installer_size = installer.get("sizeBytes")
+if re.fullmatch(r"[0-9a-f]{64}", str(installer_sha)) is None:
+    fail("release.json installer SHA-256 is invalid")
+if not isinstance(installer_size, int) or installer_size < 1:
+    fail("release.json installer size is invalid")
+
+checksums = {}
+for line_number, raw in enumerate(Path(checksums_path).read_text(encoding="utf-8").splitlines(), 1):
+    line = raw.strip()
+    if not line:
+        continue
+    parts = line.split(None, 1)
+    if len(parts) != 2:
+        fail(f"SHA256SUMS line {line_number} is malformed")
+    digest_value, filename = parts
+    filename = filename.lstrip("*")
+    if re.fullmatch(r"[0-9a-f]{64}", digest_value) is None:
+        fail(f"SHA256SUMS line {line_number} has an invalid digest")
+    if "/" in filename or "\\" in filename or filename in checksums:
+        fail(f"SHA256SUMS line {line_number} has an unsafe or duplicate filename")
+    checksums[filename] = digest_value
+
+if checksums.get("release.json") != sha256(manifest_path):
+    fail("SHA256SUMS does not authenticate the downloaded release.json bytes")
+if checksums.get(installer_name) != installer_sha:
+    fail("SHA256SUMS and release.json disagree about the installer SHA-256")
+
+print(f"{installer_sha}\t{installer_size}\t{expected_reference}")
+PY_VERIFY_RELEASE
+)
+
+acquire "$INSTALLER_NAME" "$INSTALLER_PATH"
+
+ACTUAL_SIZE="$(stat -c '%s' "$INSTALLER_PATH")"
+[[ "$ACTUAL_SIZE" == "$EXPECTED_INSTALLER_SIZE" ]] ||
+  fail "Installer size does not match release.json."
+
+ACTUAL_SHA="$(sha256sum "$INSTALLER_PATH" | awk '{print $1}')"
+[[ "$ACTUAL_SHA" == "$EXPECTED_INSTALLER_SHA" ]] ||
+  fail "Installer SHA-256 does not match release.json/SHA256SUMS."
+
+EXTRACT_DIR="$TMP_ROOT/extracted"
+mkdir -p -- "$EXTRACT_DIR"
+
+python3 - "$INSTALLER_PATH" "$EXTRACT_DIR" "$MEM_RELEASE_VERSION" <<'PY_EXTRACT'
+import pathlib
+import sys
+import tarfile
+
+archive_path, destination, version = sys.argv[1:]
+root = f"mem-installer-{version}-ubuntu-24.04-amd64"
+required = {
+    f"{root}/VERSION",
+    f"{root}/BUILD-INFO.json",
+    f"{root}/SHA256SUMS",
+    f"{root}/install.sh",
+    f"{root}/bootstrap/install.sh",
+    f"{root}/bootstrap/release.env",
+    f"{root}/bootstrap/cli/mem",
+    f"{root}/bootstrap/cli/install-host-command.sh",
+}
+seen = set()
+
+try:
+    archive = tarfile.open(archive_path, "r:gz")
+except (OSError, tarfile.TarError) as exc:
+    raise SystemExit(f"ERROR: Installer archive cannot be opened safely: {exc}")
+
+with archive:
+    members = archive.getmembers()
+    if not members:
+        raise SystemExit("ERROR: Installer archive is empty.")
+
+    for member in members:
+        name = member.name.rstrip("/")
+        path = pathlib.PurePosixPath(name)
+        if (
+            not name
+            or path.is_absolute()
+            or any(part in ("", ".", "..") for part in path.parts)
+            or not path.parts
+            or path.parts[0] != root
+        ):
+            raise SystemExit(f"ERROR: Unsafe installer archive path: {member.name}")
+        if name in seen:
+            raise SystemExit(f"ERROR: Duplicate installer archive path: {member.name}")
+        seen.add(name)
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(
+                f"ERROR: Installer archive may contain only regular files/directories: {member.name}"
+            )
+
+    missing = required - seen
+    if missing:
+        raise SystemExit(
+            "ERROR: Installer archive is missing required paths: "
+            + ", ".join(sorted(missing))
+        )
+
+    # Paths and entry types have been validated above; no links/special entries survive.
+    archive.extractall(destination, filter="data")
+PY_EXTRACT
+
+INSTALLER_ROOT="$EXTRACT_DIR/mem-installer-${MEM_RELEASE_VERSION}-ubuntu-24.04-amd64"
+[[ "$(cat "$INSTALLER_ROOT/VERSION")" == "$MEM_RELEASE_VERSION" ]] ||
+  fail "Bundled installer VERSION does not match the requested release."
+
+(
+  cd "$INSTALLER_ROOT"
+  sha256sum -c SHA256SUMS >/dev/null
+) || fail "Bundled installer inner SHA256SUMS verification failed."
+
+python3 - \
+  "$INSTALLER_ROOT/BUILD-INFO.json" \
+  "$INSTALLER_ROOT/bootstrap/release.env" \
+  "$MEM_RELEASE_VERSION" \
+  "$CONTROL_PLANE_IMAGE" <<'PY_VERIFY_INSTALLER'
+import json
+import sys
+
+build_info_path, release_env_path, version, image_reference = sys.argv[1:]
+
+with open(build_info_path, "r", encoding="utf-8") as handle:
+    build = json.load(handle)
+
+if build.get("product", {}).get("version") != version:
+    raise SystemExit("ERROR: Installer BUILD-INFO version mismatch.")
+if build.get("controlPlane", {}).get("image") != image_reference:
+    raise SystemExit("ERROR: Installer BUILD-INFO image mismatch.")
+if build.get("platform") != {
+    "os": "ubuntu",
+    "version": "24.04",
+    "architecture": "amd64",
+}:
+    raise SystemExit("ERROR: Installer BUILD-INFO platform mismatch.")
+
+env = {}
+with open(release_env_path, "r", encoding="utf-8") as handle:
+    for raw in handle:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key] = value.strip().strip("'\"")
+
+expected = {
+    "MEM_RELEASE_MODE": "release",
+    "MEM_RELEASE_VERSION": version,
+    "MEM_RELEASE_CONTROL_PLANE_IMAGE": image_reference,
+    "MEM_RELEASE_PLATFORM_OS": "ubuntu",
+    "MEM_RELEASE_PLATFORM_VERSION": "24.04",
+    "MEM_RELEASE_PLATFORM_ARCH": "amd64",
+}
+for key, value in expected.items():
+    if env.get(key) != value:
+        raise SystemExit(f"ERROR: Installer release.env mismatch for {key}.")
+PY_VERIFY_INSTALLER
+
+printf '[release] Verified Message Easy Mode %s installer bundle.\n' "$MEM_RELEASE_VERSION"
+printf '[release] Control Plane: %s\n' "$CONTROL_PLANE_IMAGE"
+printf '[release] Starting bundled installer...\n'
+
+exec "$INSTALLER_ROOT/install.sh" "${INSTALLER_ARGS[@]}"

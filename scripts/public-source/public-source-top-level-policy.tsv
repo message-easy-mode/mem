@@ -1,0 +1,35 @@
+# MEM public-source top-level publication policy.
+#
+# Format: <action><TAB><top-level-path>
+# action is exactly "include" or "exclude".
+# Every Git-tracked top-level path in the selected source commit must be listed.
+# An unclassified top-level path is a preparation failure.
+#
+# Included product/build roots
+include	bootstrap
+include	cli
+include	dev
+include	images
+include	installer
+include	migrate
+include	scripts
+
+# Included public root files
+include	.gitattributes
+include	.gitignore
+include	CHANGELOG.md
+include	CONTRIBUTING.md
+include	GOVERNANCE.md
+include	install.sh
+include	LICENSE.txt
+include	LICENSING-NOTE.md
+include	README.md
+include	SECURITY.md
+include	SUPPORT.md
+
+# Deliberately excluded development/publication-only roots
+exclude	.github
+exclude	.mem-slice-backups
+exclude	.vscode
+exclude	apply-slice.sh
+exclude	legacy

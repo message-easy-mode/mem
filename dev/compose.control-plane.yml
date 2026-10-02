@@ -1,0 +1,65 @@
+name: ${MEM_CONTROL_PLANE_COMPOSE_PROJECT:-mem-control-plane-dev}
+
+services:
+  mem-control-plane:
+    container_name: ${MEM_CONTROL_PLANE_CONTAINER_NAME:-mem-control-plane-dev}
+    image: ${MEM_CONTROL_PLANE_IMAGE:-mem-control-plane:local}
+    build:
+      context: ../installer
+      dockerfile: Dockerfile
+      additional_contexts:
+        migrate-source: ../migrate
+      args:
+        MEM_PRODUCT_VERSION: ${MEM_PRODUCT_VERSION:-0.2.0}
+        MEM_COMMIT_SHA: ${MEM_COMMIT_SHA:-unknown}
+        BUILD_DATE: ${MEM_BUILD_DATE:-unknown}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}:8443"
+    networks:
+      mem-runtime:
+        aliases:
+          - mem-control-plane
+          - ${MEM_CONTROL_PLANE_CONTAINER_NAME:-mem-control-plane-dev}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "${MEM_CONTROL_PLANE_STATE_ROOT}:/data"
+      - "${MEM_CONTROL_PLANE_MEM_DATA_ROOT}:${MEM_CONTROL_PLANE_MEM_DATA_ROOT}"
+      - "${MEM_CONTROL_PLANE_LEGACY_MEM_DATA_ROOT}:${MEM_CONTROL_PLANE_LEGACY_MEM_DATA_ROOT}"
+      - "${MEM_CONTROL_PLANE_HOST_DATA_ROOT}:${MEM_CONTROL_PLANE_HOST_DATA_ROOT}"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: https://0.0.0.0:8443
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /data/certs/mem-control-plane.crt
+      ASPNETCORE_Kestrel__Certificates__Default__KeyPath: /data/certs/mem-control-plane.key
+      MEM_CONTROL_PLANE_SETUP_TOKEN_PATH: /data/setup-token
+      MEM_CONTROL_PLANE_CHANNEL: dev
+      MEM_CONTROL_PLANE_PUBLIC_PORT: ${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}
+      App__PublicBaseUrl: "https://127.0.0.1:${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}"
+      MEM_RUNTIME_MODE: containerized-development
+      MEM_STATE_ROOT: /data
+      MEM_DATA_ROOT: ${MEM_CONTROL_PLANE_MEM_DATA_ROOT}
+      MEM_PRODUCT_VERSION: ${MEM_PRODUCT_VERSION:-0.2.0}
+      MEM_COMMIT_SHA: ${MEM_COMMIT_SHA:-unknown}
+      MEM_DEV_ALLOW_SHARED_DOCKER_HOST: "false"
+      MemRuntime__ContainerName: ${MEM_CONTROL_PLANE_CONTAINER_NAME:-mem-control-plane-dev}
+      MemRuntime__UiDeliveryMode: embedded-spa
+      Aio__SqlitePath: /data/mem-control-plane.dev.db
+      Provisioning__InstanceDataRoot: ${MEM_CONTROL_PLANE_HOST_DATA_ROOT}/instances
+      Coturn__StorageRootPath: ${MEM_CONTROL_PLANE_HOST_DATA_ROOT}/platform/coturn
+      Diagnostics__Seq__HostDataPath: ${MEM_CONTROL_PLANE_HOST_DATA_ROOT}/seq
+    labels:
+      io.message-easy-mode.managed: "true"
+      io.message-easy-mode.runtime-mode: containerized-development
+      io.message-easy-mode.resource: control-plane
+    healthcheck:
+      test: ["CMD", "curl", "--insecure", "--fail", "--silent", "--show-error", "https://127.0.0.1:8443/health/ready"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+
+networks:
+  mem-runtime:
+    external: true
+    name: ${MEM_CONTROL_PLANE_NETWORK_NAME:-mem-gateway}

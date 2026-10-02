@@ -1,0 +1,61 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Seq.Api" Version="2026.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Core/Core/Core.csproj" />
+    <ProjectReference Include="../../Infrastructure/Infrastructure/Infrastructure.csproj" />
+    <ProjectReference Include="../../Shared/Shared/Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Auth/" />
+    <Folder Include="Auth/Configuration/" />
+    <Folder Include="Auth/Contracts/" />
+    <Folder Include="Auth/Endpoints/" />
+    <Folder Include="Auth/Services/" />
+    <Folder Include="Integrations/" />
+    <Folder Include="Integrations/Acme/" />
+    <Folder Include="Integrations/Desec/" />
+    <Folder Include="Integrations/Docker/" />
+    <Folder Include="Integrations/Npm/" />
+    <Folder Include="Integrations/PgAdmin/" />
+    <Folder Include="Integrations/Postgres/" />
+    <Folder Include="Integrations/Seq/" />
+    <Folder Include="Operator/" />
+    <Folder Include="Operator/Activity/" />
+    <Folder Include="Operator/Backups/" />
+    <Folder Include="Operator/ChatServers/" />
+    <Folder Include="Operator/Dashboard/" />
+    <Folder Include="Operator/Diagnostics/" />
+    <Folder Include="Operator/Domains/" />
+    <Folder Include="Operator/Services/" />
+    <Folder Include="Operator/Settings/" />
+    <Folder Include="Operator/Storage/" />
+    <Folder Include="Setup/Domains/" />
+    <Folder Include="Setup/Domains/Certificates/" />
+    <Folder Include="Setup/Domains/Dns/" />
+    <Folder Include="Setup/Domains/Ingress/" />
+    <Folder Include="Setup/Domains/PublicRoutes/" />
+    <Folder Include="Setup/Handoff/" />
+    <Folder Include="Setup/HostChecks/" />
+    <Folder Include="Setup/InstallPlans/" />
+    <Folder Include="Setup/InstallRuns/" />
+    <Folder Include="Setup/InstallRuns/Steps/" />
+    <Folder Include="Setup/Start/" />
+    <Folder Include="Setup/Verification/" />
+    <Folder Include="Shared/" />
+    <Folder Include="Shared/Docker/" />
+    <Folder Include="Shared/Results/" />
+    <Folder Include="Shared/Time/" />
+  </ItemGroup>
+
+</Project>

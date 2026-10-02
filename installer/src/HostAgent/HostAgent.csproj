@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Docker.DotNet" Version="3.125.15" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="8.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Element/Runtime/" />
+    <Folder Include="Endpoints/" />
+    <Folder Include="Matrix/Runtime/" />
+    <Folder Include="Planning/" />
+    <Folder Include="Platform/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Candidate/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Candidate/Endpoints/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Confirmation/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Confirmation/Endpoints/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Execution/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Execution/Endpoints/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Preflight/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Preview/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Preview/Endpoints/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Retirement/" />
+    <Folder Include="Runtime/Backups/AdvancedCutover/Retirement/Endpoints/" />
+    <Folder Include="Runtime/Backups/Artifacts/LocalBackups/Endpoints/" />
+    <Folder Include="Runtime/Backups/Artifacts/PortableExports/Endpoints/" />
+    <Folder Include="Runtime/Backups/Artifacts/ValidatedImports/Endpoints/" />
+    <Folder Include="Runtime/Coturn/" />
+    <Folder Include="Runtime/Databases/" />
+    <Folder Include="Runtime/Filesystem/" />
+    <Folder Include="Runtime/Manifests/" />
+    <Folder Include="Runtime/Operations/" />
+    <Folder Include="Runtime/Readiness/" />
+    <Folder Include="Runtime/Stacks/" />
+    <Folder Include="Runtime/Stacks/Destroy/" />
+    <Folder Include="Runtime/Storage/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Core/Core/Core.csproj" />
+    <ProjectReference Include="../Infrastructure/Infrastructure/Infrastructure.csproj" />
+    <ProjectReference Include="../Modules/Modules/Modules.csproj" />
+    <ProjectReference Include="../Shared/Shared/Shared.csproj" />
+    <ProjectReference Include="../Shared/Mem.Localization/Mem.Localization.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+# Reviewed content-scan exemptions for PUBLIC-SOURCE-01B.
+#
+# Format: <rule-id><TAB><repository-relative-path>
+# Paths are exact; wildcards are deliberately unsupported.
+# An allowlist entry that no longer suppresses a real finding is a verification
+# failure so stale exemptions cannot accumulate silently.
+#
+# These entries cover synthetic security/redaction fixtures. They are not real
+# credentials or private keys; their presence is required to prove sanitisation.
+
+credentialed-url	cli/src/Mem.Cli.Tests/Mem.Cli.Tests/Config/CliPreferencesStoreTests.cs
+credentialed-url	installer/src/Api.IntegrationTests/Diagnostics/DiagnosticsSeqBootstrapServiceTests.cs
+credentialed-url	installer/src/Api.IntegrationTests/Diagnostics/DiagnosticsSeqServiceTests.cs
+credentialed-url	installer/src/Api.IntegrationTests/Diagnostics/DiagnosticsSeqUiAuthorityServiceTests.cs
+credentialed-url	installer/src/Api.IntegrationTests/Diagnostics/SeqDiagnosticsOptionsTests.cs
+credentialed-url	installer/src/Api.IntegrationTests/Portainer/PortainerRuntimeOptionsTests.cs
+credentialed-url	installer/src/HostAgent.Tests/HostAgent.Tests/Runtime/Migrations/Staging/MigrationCompletedStagingCleanupServiceTests.cs
+credentialed-url	installer/src/HostAgent.Tests/HostAgent.Tests/Runtime/Migrations/Staging/MigrationStagingOrchestratorTests.cs
+credentialed-url	installer/src/Web/src/features/operator/diagnostics/diagnostics-seq-page.test.tsx
+credentialed-url	migrate/tests/Mem.Migrate.ArchiveTests/CanonicalMigrationProjectionTests.cs
+private-key-header	installer/src/HostAgent.Tests/HostAgent.Tests/Runtime/Diagnostics/MemDiagnosticRedactorTests.cs

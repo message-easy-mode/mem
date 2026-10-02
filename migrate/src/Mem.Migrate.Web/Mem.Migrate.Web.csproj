@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>mem-migrate-web</AssemblyName>
+    <RootNamespace>Mem.Migrate.Web</RootNamespace>
+    <Version>0.2.0-alpha.1</Version>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <SpaRoot>ClientApp/</SpaRoot>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(SpaRoot)node_modules/**;$(SpaRoot)coverage/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mem.Migrate.Application/Mem.Migrate.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Remove="$(SpaRoot)**" />
+    <None Remove="$(SpaRoot)**" />
+    <None Include="$(SpaRoot)**" Exclude="$(SpaRoot)node_modules/**;$(SpaRoot)coverage/**" />
+  </ItemGroup>
+</Project>

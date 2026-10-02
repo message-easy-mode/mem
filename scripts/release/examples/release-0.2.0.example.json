@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "product": {
+    "id": "mem",
+    "name": "Message Easy Mode",
+    "version": "0.2.0",
+    "channel": "stable"
+  },
+  "release": {
+    "generatedAtUtc": "2026-09-05T00:00:00Z",
+    "publication": {
+      "provider": "github-releases",
+      "repository": "https://github.com/message-easy-mode/mem-releases",
+      "tag": "v0.2.0"
+    }
+  },
+  "sources": [
+    {
+      "id": "control-plane",
+      "repository": "https://github.com/message-easy-mode/mem",
+      "commit": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ],
+  "support": {
+    "controlPlaneHosts": [
+      {
+        "os": "ubuntu",
+        "version": "24.04",
+        "architecture": "amd64"
+      }
+    ]
+  },
+  "controlPlane": {
+    "sourceId": "control-plane",
+    "image": {
+      "repository": "ghcr.io/message-easy-mode/mem-control-plane",
+      "tag": "0.2.0",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reference": "ghcr.io/message-easy-mode/mem-control-plane:0.2.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "artifacts": [
+    {
+      "id": "bootstrap",
+      "kind": "bootstrap-script",
+      "fileName": "install-mem-0.2.0.sh",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sizeBytes": 12000,
+      "sourceId": "control-plane"
+    },
+    {
+      "id": "installer",
+      "kind": "installer-bundle",
+      "fileName": "mem-installer-0.2.0-ubuntu-24.04-amd64.tar.gz",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sizeBytes": 24000000,
+      "sourceId": "control-plane",
+      "platform": {
+        "os": "ubuntu",
+        "version": "24.04",
+        "architecture": "amd64"
+      }
+    },
+    {
+      "id": "cli",
+      "kind": "cli-binary",
+      "fileName": "mem-cli-0.2.0-linux-x64",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sizeBytes": 18000000,
+      "sourceId": "control-plane",
+      "runtime": "linux-x64"
+    },
+    {
+      "id": "migrate-bootstrap",
+      "kind": "migrate-bootstrap-script",
+      "fileName": "install-mem-migrate-0.2.0.sh",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sizeBytes": 18000,
+      "sourceId": "control-plane"
+    },
+    {
+      "id": "migrate-manifest",
+      "kind": "component-release-manifest",
+      "fileName": "mem-migrate-0.2.0-release.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sizeBytes": 900,
+      "sourceId": "control-plane"
+    },
+    {
+      "id": "migrate",
+      "kind": "migrate-bundle",
+      "fileName": "mem-migrate-0.2.0-linux-x64.tar.gz",
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "sizeBytes": 32000000,
+      "sourceId": "control-plane",
+      "runtime": "linux-x64"
+    },
+    {
+      "id": "migrate-checksum",
+      "kind": "sha256-sidecar",
+      "fileName": "mem-migrate-0.2.0-linux-x64.tar.gz.sha256",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "sizeBytes": 120,
+      "sourceId": "control-plane"
+    },
+    {
+      "id": "sbom",
+      "kind": "sbom-spdx-json",
+      "fileName": "mem-0.2.0-sbom.spdx.json",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sizeBytes": 900000,
+      "sourceId": "control-plane"
+    }
+  ],
+  "verification": {
+    "checksums": {
+      "algorithm": "sha256",
+      "fileName": "SHA256SUMS"
+    },
+    "publication": {
+      "provider": "github-releases",
+      "immutableReleaseRequired": true,
+      "releaseAttestationRequired": true
+    },
+    "provenance": {
+      "provider": "github-artifact-attestations",
+      "fileArtifactsRequired": true,
+      "containerImageRequired": true
+    }
+  }
+}

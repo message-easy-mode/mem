@@ -1,0 +1,2899 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STATE_ROOT="${MEM_ENV_STATE_ROOT:-${SCRIPT_DIR}/.state}"
+LOCAL_STATE="${STATE_ROOT}/local"
+CONTAINER_STATE="${STATE_ROOT}/container"
+INTERACTIVE_STATE="${STATE_ROOT}/interactive"
+INTERACTIVE_DATA_ROOT="${INTERACTIVE_STATE}/data"
+INTERACTIVE_MEM_DATA_ROOT="${INTERACTIVE_STATE}/mem-data"
+INTERACTIVE_MEM_DATA_AUTHORITY_FILE="${INTERACTIVE_STATE}/mem-data-authority.env"
+# Keep the historical local HostAgent data root as a read/write compatibility
+# path. Existing backup/migration records can contain this absolute path, so
+# containerized development mounts it at the same path while new HostAgent
+# writes use INTERACTIVE_MEM_DATA_ROOT.
+LEGACY_LOCAL_MEM_DATA_ROOT="${HOME}/mem-data"
+# Keep the historical container-development host-data path as the shared
+# operational resource root. Existing Matrix/Element/TURN/Seq Docker bind
+# mounts already refer to this exact host path; moving it would invalidate
+# live resource ownership. Local development now uses the same root.
+INTERACTIVE_HOST_DATA_ROOT="${CONTAINER_STATE}/host-data"
+INTERACTIVE_AUTHORITY_FILE="${INTERACTIVE_STATE}/authority.env"
+INTERACTIVE_HOST_DATA_ACCESS_FILE="${INTERACTIVE_STATE}/host-data-access.env"
+INTERACTIVE_LEGACY_RETIREMENT_FILE="${STATE_ROOT}/interactive-legacy-retired.env"
+INTERACTIVE_SETUP_TOKEN_PATH="${INTERACTIVE_DATA_ROOT}/setup-token"
+INTERACTIVE_SQLITE_PATH="${INTERACTIVE_DATA_ROOT}/mem-control-plane.dev.db"
+LEGACY_LOCAL_DATA_ROOT="${REPO_ROOT}/installer/data"
+LEGACY_CONTAINER_VOLUME_NAME="mem-control-plane-dev-data"
+COMPOSE_FILE="${SCRIPT_DIR}/compose.control-plane.yml"
+LOCAL_API_PROJECT="${REPO_ROOT}/installer/src/Api/Api.csproj"
+WEB_ROOT="${REPO_ROOT}/installer/src/Web"
+LOCAL_API_URL="http://127.0.0.1:7105"
+LOCAL_WEB_URL="http://127.0.0.1:5173"
+CONTAINER_HTTPS_PORT="${MEM_CONTROL_PLANE_HTTPS_PORT:-8443}"
+CONTAINER_URL="https://127.0.0.1:${CONTAINER_HTTPS_PORT}"
+DEV_CONTAINER_NAME="mem-control-plane-dev"
+DEV_NETWORK_NAME="${MEM_CONTROL_PLANE_NETWORK_NAME:-mem-gateway}"
+LOCAL_SEQ_CONTAINER_NAME="mem-seq-local"
+LOCAL_SEQ_PREFERRED_HOST_PORT="16341"
+CONTAINER_SEQ_CONTAINER_NAME="mem-seq-dev"
+CONTAINER_SEQ_PREFERRED_HOST_PORT="17341"
+SEQ_MANAGED_LABEL="io.message-easy-mode.managed"
+SEQ_SERVICE_LABEL="io.message-easy-mode.service"
+SEQ_RUNTIME_MODE_LABEL="io.message-easy-mode.runtime-mode"
+SEQ_CONTROL_PLANE_INSTANCE_LABEL="io.message-easy-mode.control-plane-instance"
+RESET_CONFIRMATION="DELETE_MEM_DEV_STATE"
+HOST_RESET_CONFIRMATION="DELETE_MEM_DEV_HOST_STATE"
+HOST_RESET_PRIVILEGED_CLEANUP=false
+MEM_MANAGED_LABEL="io.message-easy-mode.managed"
+MEM_RUNTIME_MODE_LABEL="io.message-easy-mode.runtime-mode"
+MEM_RESOURCE_LABEL="io.message-easy-mode.resource"
+COMPOSE_PROJECT_LABEL="com.docker.compose.project"
+COMPOSE_VOLUME_LABEL="com.docker.compose.volume"
+MIN_COMPOSE_ADDITIONAL_CONTEXTS_VERSION="2.17.0"
+E2E_STATE_ROOT="${STATE_ROOT}/e2e"
+E2E_LOCAL_STATE="${E2E_STATE_ROOT}/local"
+E2E_LOCAL_DATA_ROOT="${E2E_LOCAL_STATE}/data"
+E2E_LOCAL_MEM_DATA_ROOT="${E2E_LOCAL_STATE}/mem-data"
+E2E_CONTAINER_STATE="${E2E_STATE_ROOT}/container"
+E2E_CONTAINER_DATA_ROOT="${E2E_CONTAINER_STATE}/data"
+E2E_CONTAINER_MEM_DATA_ROOT="${E2E_CONTAINER_STATE}/mem-data"
+E2E_CONTAINER_LEGACY_MEM_DATA_ROOT="${E2E_CONTAINER_STATE}/legacy-mem-data"
+E2E_CONTAINER_HOST_DATA_ROOT="${E2E_CONTAINER_STATE}/host-data"
+E2E_CONTAINER_NAME="mem-control-plane-dev-e2e"
+E2E_NETWORK_NAME="mem-control-plane-dev-e2e"
+E2E_COMPOSE_PROJECT="mem-control-plane-dev-e2e"
+E2E_AUTH_FILE_LOCAL="${E2E_LOCAL_STATE}/auth.json"
+E2E_AUTH_FILE_CONTAINER="${E2E_CONTAINER_STATE}/auth.json"
+
+log() { printf '[mem-env] %s\n' "$*"; }
+warn() { printf '[mem-env] WARNING: %s\n' "$*" >&2; }
+die() { printf '[mem-env] ERROR: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat <<'EOF_USAGE'
+MEM developer environment
+
+Usage:
+  ./dev/mem-env status
+  ./dev/mem-env doctor
+
+  ./dev/mem-env local up [--watch|--no-watch]
+  ./dev/mem-env local restart [--watch|--no-watch]
+  ./dev/mem-env local down|logs|token
+  ./dev/mem-env container build|up|down|restart|logs|token
+  ./dev/mem-env switch local|container
+
+  ./dev/mem-env authority status
+  ./dev/mem-env authority adopt local|container
+  ./dev/mem-env authority repair-mem-data
+
+  ./dev/mem-env host-data status
+  ./dev/mem-env host-data access
+
+  ./dev/mem-env seq status
+  ./dev/mem-env seq local|container inspect|logs
+
+  ./dev/mem-env e2e local|container|all
+
+  ./dev/mem-env reset interactive --confirm DELETE_MEM_DEV_STATE
+
+  ./dev/mem-env reset host --dry-run
+  ./dev/mem-env reset host --dry-run --include-canonical-control-plane
+  ./dev/mem-env reset host --include-canonical-control-plane \
+    --confirm DELETE_MEM_DEV_HOST_STATE
+
+Normal down/restart operations preserve state. The ordinary local and container
+Control Plane modes share one interactive development authority under
+`dev/.state/interactive`; exactly one mutable Control Plane may use it at a time.
+Context-scoped Seq runtimes may coexist and remain running while switching modes.
+Managed local development defaults to backend source watch: a saved .NET source
+change rebuilds and fully restarts the API. Use `local up --no-watch` for a
+one-shot API process when a stable process is preferable.
+
+Legacy separate local/container state is never merged automatically. If detected,
+select the source explicitly with `authority adopt local|container` before the
+first shared-authority start.
+
+`reset interactive` deletes the shared interactive Control Plane state used by
+both ordinary development modes. Disposable E2E state remains separate.
+
+`reset host` is the exceptional clean-room operation. It returns a development
+Docker host to an intentionally pre-MEM state by deleting discovered MEM
+containers, MEM volumes/networks, local/container/E2E Control Plane state, and
+legacy `mem-*` resources. Docker images/build cache are retained. It always
+supports a non-destructive `--dry-run` first.
+
+A canonical `mem-control-plane` or legacy permanent `mem-installer` container is
+protected by default. A stopped canonical container requires the explicit
+`--include-canonical-control-plane` flag. A running canonical container blocks
+host reset even with that flag and must be stopped deliberately first.
+
+Local and containerized Control Planes are exclusive by default and are never
+started together by this harness.
+EOF_USAGE
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
+}
+
+validate_port() {
+    local value="$1"
+    [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+    (( value >= 1 && value <= 65535 ))
+}
+
+port_is_listening() {
+    local port="$1"
+    ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"
+}
+
+pid_is_running() {
+    local pid="$1"
+    [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+pid_command_line() {
+    local pid="$1"
+    tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true
+}
+
+pid_matches() {
+    local pid="$1"
+    local expected="$2"
+    pid_is_running "${pid}" || return 1
+    [[ "$(pid_command_line "${pid}")" == *"${expected}"* ]]
+}
+
+read_pid_file() {
+    local file="$1"
+    [[ -f "${file}" ]] || return 1
+    tr -d '[:space:]' < "${file}"
+}
+
+managed_process_running() {
+    local pid_file="$1"
+    local expected="$2"
+    local pid
+    pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
+    [[ -n "${pid}" ]] && pid_matches "${pid}" "${expected}"
+}
+
+start_managed_process() {
+    local label="$1"
+    local pid_file="$2"
+    local log_file="$3"
+    local expected="$4"
+    shift 4
+
+    mkdir -p "$(dirname "${pid_file}")" "$(dirname "${log_file}")"
+    if managed_process_running "${pid_file}" "${expected}"; then
+        die "${label} is already running under this harness."
+    fi
+
+    : > "${log_file}"
+    # Bash starts asynchronous commands with SIGINT and SIGQUIT ignored when
+    # job control is disabled. Those ignored dispositions survive exec and make
+    # a later kill -INT ineffective for detached managed processes such as
+    # dotnet watch. Reset them explicitly before exec while setsid creates the
+    # private process group owned by the harness.
+    setsid env --default-signal=INT --default-signal=QUIT \
+        "$@" >>"${log_file}" 2>&1 < /dev/null &
+    local pid=$!
+    printf '%s\n' "${pid}" > "${pid_file}"
+    sleep 1
+
+    if ! pid_matches "${pid}" "${expected}"; then
+        rm -f "${pid_file}"
+        tail -n 80 "${log_file}" >&2 || true
+        die "${label} failed to start."
+    fi
+}
+
+stop_managed_process() {
+    local label="$1"
+    local pid_file="$2"
+    local expected="$3"
+    local graceful_signal="${4:-TERM}"
+    local pid
+
+    case "${graceful_signal}" in
+        TERM|INT) ;;
+        *) die "Unsupported graceful shutdown signal for ${label}: ${graceful_signal}" ;;
+    esac
+
+    pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
+
+    if [[ -z "${pid}" ]]; then
+        log "${label} is not recorded as running."
+        return 0
+    fi
+
+    if ! pid_matches "${pid}" "${expected}"; then
+        warn "Refusing to stop PID ${pid}; it is not the ${label} process started by this harness."
+        rm -f "${pid_file}"
+        return 1
+    fi
+
+    kill "-${graceful_signal}" -- "-${pid}" 2>/dev/null ||
+        kill "-${graceful_signal}" "${pid}" 2>/dev/null || true
+    for _ in $(seq 1 40); do
+        if ! pid_is_running "${pid}"; then
+            rm -f "${pid_file}"
+            log "Stopped ${label}."
+            return 0
+        fi
+        sleep 0.25
+    done
+
+    warn "${label} did not stop after SIG${graceful_signal}; sending SIGKILL to its owned process group."
+    kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
+    rm -f "${pid_file}"
+}
+
+is_recognized_control_plane_name() {
+    local name="$1"
+    [[ "${name}" == "mem-control-plane" ||
+       "${name}" == "mem-installer" ||
+       "${name}" == "mem-control-plane-dev" ||
+       "${name}" == mem-control-plane-dev-* ]]
+}
+
+running_control_plane_names() {
+    docker ps --format '{{.Names}}' 2>/dev/null | while IFS= read -r name; do
+        if is_recognized_control_plane_name "${name}"; then
+            printf '%s\n' "${name}"
+        fi
+    done
+}
+
+competing_control_plane_names() {
+    local allowed="${1:-}"
+    local name
+    while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        if [[ -z "${allowed}" || "${name}" != "${allowed}" ]]; then
+            printf '%s\n' "${name}"
+        fi
+    done < <(running_control_plane_names)
+}
+
+require_exclusive_docker_host() {
+    local allowed="${1:-}"
+    local competing
+    competing="$(competing_control_plane_names "${allowed}")"
+    if [[ -n "${competing}" ]]; then
+        die "Another MEM Control Plane is active on this Docker host: $(echo "${competing}" | paste -sd ', ' -). Stop it explicitly before continuing."
+    fi
+}
+
+compose_supports_additional_contexts() {
+    local version="${1#v}"
+    [[ "${version}" =~ ^[0-9]+([.][0-9]+){1,2}([.-].*)?$ ]] || return 1
+
+    local first
+    first="$(printf '%s\n%s\n' "${MIN_COMPOSE_ADDITIONAL_CONTEXTS_VERSION}" "${version}" | sort -V | head -n 1)"
+    [[ "${first}" == "${MIN_COMPOSE_ADDITIONAL_CONTEXTS_VERSION}" ]]
+}
+
+require_docker() {
+    require_command docker
+    require_command sort
+    docker info >/dev/null 2>&1 || die "Docker is unavailable to the current user."
+    docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required."
+
+    local compose_version
+    compose_version="$(docker compose version --short 2>/dev/null | tr -d '\r' | head -n 1)"
+    compose_supports_additional_contexts "${compose_version}" ||
+        die "Docker Compose ${MIN_COMPOSE_ADDITIONAL_CONTEXTS_VERSION}+ is required because the Control Plane image builds MEM Migrate from an additional source context. Found: ${compose_version:-unknown}."
+}
+
+write_env_file() {
+    local path="$1"
+    shift
+    mkdir -p "$(dirname "${path}")"
+    : > "${path}"
+    chmod 600 "${path}"
+    printf '%s\n' "$@" >> "${path}"
+}
+
+generate_setup_token() {
+    if command -v openssl >/dev/null 2>&1; then
+        printf 'mem_%s\n' "$(openssl rand -hex 24)"
+    else
+        printf 'mem_%s_%s%s\n' "$(date +%s)" "${RANDOM}" "${RANDOM}"
+    fi
+}
+
+path_has_entries() {
+    local path="$1"
+    [[ -d "${path}" ]] || return 1
+    find "${path}" -mindepth 1 -print -quit 2>/dev/null | grep -q .
+}
+
+legacy_local_state_present() {
+    path_has_entries "${LEGACY_LOCAL_DATA_ROOT}"
+}
+
+legacy_container_state_present() {
+    command -v docker >/dev/null 2>&1 || return 1
+    docker volume inspect "${LEGACY_CONTAINER_VOLUME_NAME}" >/dev/null 2>&1
+}
+
+interactive_legacy_retired() {
+    [[ -f "${INTERACTIVE_LEGACY_RETIREMENT_FILE}" ]]
+}
+
+interactive_authority_ready() {
+    [[ -f "${INTERACTIVE_AUTHORITY_FILE}" &&
+       -d "${INTERACTIVE_DATA_ROOT}" &&
+       -d "${INTERACTIVE_HOST_DATA_ROOT}" &&
+       -s "${INTERACTIVE_SETUP_TOKEN_PATH}" ]]
+}
+
+read_authority_value() {
+    local key="$1"
+    [[ -f "${INTERACTIVE_AUTHORITY_FILE}" ]] || return 1
+    sed -n "s/^${key}=//p" "${INTERACTIVE_AUTHORITY_FILE}" | head -n 1
+}
+
+write_authority_metadata() {
+    local root="$1"
+    local source="$2"
+    write_env_file "${root}/authority.env" \
+        "MEM_INTERACTIVE_AUTHORITY_VERSION=1" \
+        "MEM_INTERACTIVE_AUTHORITY_SOURCE=${source}" \
+        "MEM_INTERACTIVE_AUTHORITY_CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+ensure_development_certificate() {
+    local data_root="$1"
+    local cert_dir="${data_root}/certs"
+    local cert_path="${cert_dir}/mem-control-plane.crt"
+    local key_path="${cert_dir}/mem-control-plane.key"
+
+    if [[ -s "${cert_path}" && -s "${key_path}" ]]; then
+        return 0
+    fi
+    if [[ -e "${cert_path}" || -e "${key_path}" ]]; then
+        die "Incomplete development certificate state beneath ${cert_dir}; refusing to overwrite it."
+    fi
+
+    require_command openssl
+    mkdir -p "${cert_dir}"
+    umask 077
+    openssl req -x509 -newkey rsa:3072 -sha256 -days 825 -nodes \
+        -keyout "${key_path}" -out "${cert_path}" \
+        -subj "/CN=MEM Control Plane Development" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
+    chmod 600 "${key_path}"
+    chmod 644 "${cert_path}"
+}
+
+mem_data_manifest_set_matches_active_database() {
+    [[ -d "${INTERACTIVE_MEM_DATA_ROOT}" ]] || return 1
+    require_command python3
+
+    python3 - \
+        "${INTERACTIVE_SQLITE_PATH}" \
+        "${INTERACTIVE_MEM_DATA_ROOT}/control-plane/runtime-stacks" <<'PY'
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+manifest_dir = pathlib.Path(sys.argv[2])
+
+def norm_id(value):
+    return (value or "").strip().lower().replace("-", "")
+
+def norm(value):
+    return (value or "").strip().lower()
+
+manifest_rows = {}
+if manifest_dir.is_dir():
+    for path in sorted(manifest_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            raise SystemExit(1)
+        stack_id = norm_id(payload.get("stackId"))
+        slug = norm(payload.get("slug"))
+        if not stack_id or len(stack_id) != 32 or not slug:
+            raise SystemExit(1)
+        if stack_id in manifest_rows:
+            raise SystemExit(1)
+        manifest_rows[stack_id] = slug
+
+if not db_path.is_file():
+    raise SystemExit(0 if not manifest_rows else 1)
+
+con = None
+try:
+    con = sqlite3.connect(str(db_path))
+    rows = con.execute(
+        'SELECT Id, Slug, Status, LastVerifiedStatus FROM RuntimeStacks'
+    ).fetchall()
+except sqlite3.OperationalError:
+    raise SystemExit(0 if not manifest_rows else 1)
+finally:
+    if con is not None:
+        con.close()
+
+active_rows = {}
+for stack_id, slug, status, last_verified in rows:
+    destroyed = (
+        norm(status) == "destroyed"
+        or norm(last_verified) == "destroyed"
+        or "--destroyed-" in norm(slug)
+    )
+    if not destroyed:
+        active_rows[norm_id(stack_id)] = norm(slug)
+
+raise SystemExit(0 if active_rows == manifest_rows else 1)
+PY
+}
+
+interactive_mem_data_authority_ready() {
+    [[ -f "${INTERACTIVE_MEM_DATA_AUTHORITY_FILE}" ]] || return 1
+    [[ -d "${INTERACTIVE_MEM_DATA_ROOT}" ]] || return 1
+    grep -qx 'MEM_INTERACTIVE_MEM_DATA_READY=1' "${INTERACTIVE_MEM_DATA_AUTHORITY_FILE}" 2>/dev/null || return 1
+    mem_data_manifest_set_matches_active_database
+}
+
+write_mem_data_authority_metadata() {
+    local source="$1"
+    write_env_file "${INTERACTIVE_MEM_DATA_AUTHORITY_FILE}" \
+        "MEM_INTERACTIVE_MEM_DATA_READY=1" \
+        "MEM_INTERACTIVE_MEM_DATA_SOURCE=${source}" \
+        "MEM_INTERACTIVE_MEM_DATA_ROOT=${INTERACTIVE_MEM_DATA_ROOT}" \
+        "MEM_INTERACTIVE_LEGACY_MEM_DATA_ROOT=${LEGACY_LOCAL_MEM_DATA_ROOT}" \
+        "MEM_INTERACTIVE_MEM_DATA_UPDATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+initialize_fresh_interactive_mem_data_authority() {
+    mkdir -p "${INTERACTIVE_MEM_DATA_ROOT}"
+    write_mem_data_authority_metadata fresh
+}
+
+assert_mem_data_repair_safe() {
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" ||
+       managed_process_running "${LOCAL_STATE}/vite.pid" "run dev" ||
+       port_is_listening 7105 || port_is_listening 5173; then
+        die "MEM data authority repair requires the local API and Vite to be stopped, including manual/VS Code processes."
+    fi
+    if container_running "${DEV_CONTAINER_NAME}"; then
+        die "MEM data authority repair requires ${DEV_CONTAINER_NAME} to be stopped. Run './dev/mem-env container down' first."
+    fi
+}
+
+reconstruct_active_manifest_from_database() {
+    local stack_id="$1"
+    local output_path="$2"
+
+    require_command dotnet
+    ASPNETCORE_ENVIRONMENT=Development \
+    MEM_RUNTIME_MODE=local-development \
+    MEM_STATE_ROOT="${INTERACTIVE_DATA_ROOT}" \
+    MEM_DATA_ROOT="${INTERACTIVE_MEM_DATA_ROOT}" \
+    Aio__SqlitePath="${INTERACTIVE_SQLITE_PATH}" \
+    dotnet run \
+        --project "${LOCAL_API_PROJECT}" \
+        --no-launch-profile \
+        -- \
+        runtime-manifest reconstruct "${stack_id}" "${output_path}"
+}
+
+repair_interactive_mem_data() {
+    require_command python3
+    require_command ss
+    require_docker
+    interactive_authority_ready ||
+        die "Shared interactive Control Plane authority is not ready. Adopt or initialize it first."
+    assert_mem_data_repair_safe
+
+    if interactive_mem_data_authority_ready; then
+        log "Shared MEM data authority is already ready: ${INTERACTIVE_MEM_DATA_ROOT}"
+        return 0
+    fi
+
+    if path_has_entries "${INTERACTIVE_MEM_DATA_ROOT}" &&
+       [[ ! -f "${INTERACTIVE_MEM_DATA_AUTHORITY_FILE}" ]]; then
+        die "Shared MEM data root already contains files without an authority marker: ${INTERACTIVE_MEM_DATA_ROOT}. Refusing to merge or overwrite it."
+    fi
+
+    mkdir -p "${INTERACTIVE_MEM_DATA_ROOT}/control-plane"
+    mkdir -p "${LEGACY_LOCAL_MEM_DATA_ROOT}"
+
+    local repair_root staged_dir missing_file target_dir backup_dir
+    repair_root="$(mktemp -d "${INTERACTIVE_STATE}/.mem-data-repair.XXXXXX")"
+    staged_dir="${repair_root}/runtime-stacks"
+    missing_file="${repair_root}/missing.tsv"
+    target_dir="${INTERACTIVE_MEM_DATA_ROOT}/control-plane/runtime-stacks"
+    backup_dir="${repair_root}/previous-runtime-stacks"
+    mkdir -p "${staged_dir}"
+    : > "${missing_file}"
+
+    python3 - \
+        "${INTERACTIVE_SQLITE_PATH}" \
+        "${LEGACY_LOCAL_MEM_DATA_ROOT}/control-plane/runtime-stacks" \
+        "${target_dir}" \
+        "${staged_dir}" \
+        "${missing_file}" <<'PY'
+import json
+import pathlib
+import shutil
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+legacy_dir = pathlib.Path(sys.argv[2])
+current_dir = pathlib.Path(sys.argv[3])
+staged_dir = pathlib.Path(sys.argv[4])
+missing_file = pathlib.Path(sys.argv[5])
+
+def norm(value):
+    return (value or "").strip().lower()
+
+def norm_id(value):
+    return norm(value).replace("-", "")
+
+if not db_path.is_file():
+    raise SystemExit(f"Shared Control Plane database does not exist: {db_path}")
+
+con = sqlite3.connect(str(db_path))
+try:
+    rows = con.execute(
+        'SELECT Id, Slug, Status, LastVerifiedStatus FROM RuntimeStacks'
+    ).fetchall()
+finally:
+    con.close()
+
+active = []
+for stack_id, slug, status, last_verified in rows:
+    destroyed = (
+        norm(status) == "destroyed"
+        or norm(last_verified) == "destroyed"
+        or "--destroyed-" in norm(slug)
+    )
+    if not destroyed:
+        active.append((norm_id(stack_id), stack_id, slug))
+
+candidate_dirs = [current_dir, legacy_dir]
+candidates = []
+for rank, directory in enumerate(candidate_dirs):
+    if not directory.is_dir():
+        continue
+    for path in sorted(directory.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SystemExit(f"Unreadable runtime manifest {path}: {exc}")
+        candidates.append({
+            "path": path,
+            "stack_id": norm_id(payload.get("stackId")),
+            "slug": norm(payload.get("slug")),
+            "rank": rank,
+            "legacy": directory == legacy_dir,
+        })
+
+staged_dir.mkdir(parents=True, exist_ok=True)
+used = set()
+imported = []
+missing = []
+
+for active_id, raw_id, raw_slug in active:
+    exact = [item for item in candidates if item["stack_id"] == active_id]
+    exact.sort(key=lambda item: (item["rank"], str(item["path"])))
+    if exact:
+        source = exact[0]
+        destination = staged_dir / f"{active_id}.json"
+        shutil.copy2(source["path"], destination)
+        imported.append((raw_id, raw_slug, source["path"]))
+        used.add(source["path"])
+        continue
+    missing.append((raw_id, raw_slug))
+
+with missing_file.open("w", encoding="utf-8") as handle:
+    for raw_id, raw_slug in missing:
+        handle.write(f"{raw_id}\t{raw_slug}\n")
+
+legacy_candidates = [item for item in candidates if item["legacy"]]
+retired = [item for item in legacy_candidates if item["path"] not in used]
+current_mismatches = [
+    item for item in candidates
+    if not item["legacy"] and item["path"] not in used
+]
+
+print(f"Active durable stacks: {len(active)}")
+print(f"Exact active manifests imported: {len(imported)}")
+for raw_id, raw_slug, source in imported:
+    print(f"  imported {raw_slug} ({raw_id}) from {source}")
+if missing:
+    print(f"Active manifests requiring database reconstruction: {len(missing)}")
+    for raw_id, raw_slug in missing:
+        print(f"  reconstruct {raw_slug} ({raw_id})")
+if retired:
+    print(f"Legacy manifests deliberately left retired: {len(retired)}")
+    for item in retired:
+        print(f"  retired {item['slug'] or '<unknown>'} ({item['stack_id'] or '<unknown>'}) at {item['path']}")
+if current_mismatches:
+    print(f"Canonical manifests rejected by exact identity validation: {len(current_mismatches)}")
+    for item in current_mismatches:
+        print(f"  rejected {item['slug'] or '<unknown>'} ({item['stack_id'] or '<unknown>'}) at {item['path']}")
+PY
+
+    local reconstructed=0 stack_id stack_slug output_path
+    while IFS=$'\t' read -r stack_id stack_slug; do
+        [[ -n "${stack_id}" ]] || continue
+        output_path="${staged_dir}/$(printf '%s' "${stack_id}" | tr '[:upper:]' '[:lower:]' | tr -d '-').json"
+        reconstruct_active_manifest_from_database "${stack_id}" "${output_path}"
+        reconstructed=$((reconstructed + 1))
+    done < "${missing_file}"
+    printf 'Active manifests reconstructed from durable database rows: %s\n' "${reconstructed}"
+
+    python3 - \
+        "${INTERACTIVE_SQLITE_PATH}" \
+        "${staged_dir}" <<'PY'
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+staged_dir = pathlib.Path(sys.argv[2])
+
+def norm(value):
+    return (value or "").strip().lower()
+
+def norm_id(value):
+    return norm(value).replace("-", "")
+
+con = sqlite3.connect(str(db_path))
+try:
+    rows = con.execute(
+        'SELECT Id, Slug, Status, LastVerifiedStatus FROM RuntimeStacks'
+    ).fetchall()
+finally:
+    con.close()
+
+active = {}
+for stack_id, slug, status, last_verified in rows:
+    destroyed = (
+        norm(status) == "destroyed"
+        or norm(last_verified) == "destroyed"
+        or "--destroyed-" in norm(slug)
+    )
+    if not destroyed:
+        active[norm_id(stack_id)] = (stack_id, slug)
+
+observed = {}
+for path in sorted(staged_dir.glob("*.json")):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    manifest_id = norm_id(payload.get("stackId"))
+    manifest_slug = norm(payload.get("slug"))
+    if manifest_id in observed:
+        raise SystemExit(f"Duplicate staged manifest identity: {manifest_id}")
+    observed[manifest_id] = (path, manifest_slug)
+
+if set(active) != set(observed):
+    missing = sorted(set(active) - set(observed))
+    unexpected = sorted(set(observed) - set(active))
+    raise SystemExit(
+        f"Staged manifest identities do not exactly match active durable stacks. missing={missing} unexpected={unexpected}"
+    )
+
+for stack_id, (_, slug) in active.items():
+    path, manifest_slug = observed[stack_id]
+    if manifest_slug != norm(slug):
+        raise SystemExit(
+            f"Staged manifest slug mismatch for {stack_id}: database={slug!r} manifest={manifest_slug!r}"
+        )
+
+print(f"Validated exact staged manifest set: {len(observed)} active stack(s).")
+PY
+
+    if [[ -d "${target_dir}" ]]; then
+        mv -- "${target_dir}" "${backup_dir}"
+    fi
+    if ! mv -- "${staged_dir}" "${target_dir}"; then
+        [[ ! -d "${backup_dir}" ]] || mv -- "${backup_dir}" "${target_dir}"
+        rm -rf -- "${repair_root}"
+        die "Could not install the validated shared runtime manifest set. Previous manifests were restored."
+    fi
+
+    if ! python3 - \
+        "${INTERACTIVE_SQLITE_PATH}" \
+        "${INTERACTIVE_MEM_DATA_ROOT}" \
+        "${target_dir}" <<'PY'
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+data_root = str(pathlib.Path(sys.argv[2]))
+manifest_dir = pathlib.Path(sys.argv[3])
+
+manifests = {}
+for path in manifest_dir.glob("*.json"):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    stack_id = str(payload["stackId"])
+    manifests[stack_id.lower().replace("-", "")] = str(path)
+
+con = sqlite3.connect(str(db_path))
+try:
+    con.execute("BEGIN")
+    rows = con.execute(
+        'SELECT Id, Slug, Status, LastVerifiedStatus FROM RuntimeStacks'
+    ).fetchall()
+    for stack_id, slug, status, last_verified in rows:
+        destroyed = (
+            (status or "").strip().lower() == "destroyed"
+            or (last_verified or "").strip().lower() == "destroyed"
+            or "--destroyed-" in (slug or "").strip().lower()
+        )
+        if destroyed:
+            continue
+        key = str(stack_id).lower().replace("-", "")
+        manifest_path = manifests.get(key)
+        if manifest_path is None:
+            raise RuntimeError(f"Missing validated manifest for active stack {stack_id}")
+        con.execute(
+            'UPDATE RuntimeStacks SET DataRoot = ?, ManifestPath = ? WHERE lower(replace(Id, "-", "")) = ?',
+            (data_root, manifest_path, key),
+        )
+    con.commit()
+except Exception:
+    con.rollback()
+    raise
+finally:
+    con.close()
+PY
+    then
+        rm -rf -- "${target_dir}"
+        [[ ! -d "${backup_dir}" ]] || mv -- "${backup_dir}" "${target_dir}"
+        rm -rf -- "${repair_root}"
+        die "Could not update durable RuntimeStack manifest paths after repair. Previous manifests were restored."
+    fi
+
+    rm -rf -- "${backup_dir}" "${repair_root}"
+    write_mem_data_authority_metadata exact-id-plus-database-reconstruction
+
+    interactive_mem_data_authority_ready ||
+        die "MEM data repair completed but the exact manifest/database authority validation still failed."
+    log "Shared MEM data authority is ready: ${INTERACTIVE_MEM_DATA_ROOT}"
+    log "Historical ${LEGACY_LOCAL_MEM_DATA_ROOT} remains mounted as a compatibility path for persisted backup/migration references."
+}
+
+ensure_interactive_material() {
+    mkdir -p "${INTERACTIVE_DATA_ROOT}" "${INTERACTIVE_HOST_DATA_ROOT}" "${LEGACY_LOCAL_MEM_DATA_ROOT}"
+    if [[ ! -s "${INTERACTIVE_SETUP_TOKEN_PATH}" ]]; then
+        umask 077
+        generate_setup_token > "${INTERACTIVE_SETUP_TOKEN_PATH}"
+    fi
+    chmod 600 "${INTERACTIVE_SETUP_TOKEN_PATH}"
+    ensure_development_certificate "${INTERACTIVE_DATA_ROOT}"
+}
+
+initialize_fresh_interactive_authority() {
+    [[ ! -e "${INTERACTIVE_STATE}" ]] ||
+        die "Shared interactive authority path already exists without a valid authority marker: ${INTERACTIVE_STATE}"
+    mkdir -p "${INTERACTIVE_DATA_ROOT}" "${INTERACTIVE_HOST_DATA_ROOT}"
+    ensure_interactive_material
+    write_authority_metadata "${INTERACTIVE_STATE}" fresh
+    initialize_fresh_interactive_mem_data_authority
+    log "Created fresh shared interactive development authority."
+}
+
+legacy_authority_guidance() {
+    local -a sources=()
+    legacy_local_state_present && sources+=(local)
+    legacy_container_state_present && sources+=(container)
+    local joined
+    joined="$(IFS=', '; echo "${sources[*]}")"
+    die "Legacy development Control Plane state detected (${joined:-unknown}). Shared authority will not merge it automatically. Stop ordinary development runtimes, then run './dev/mem-env authority adopt local' or './dev/mem-env authority adopt container' to choose the authoritative source."
+}
+
+ensure_interactive_authority() {
+    if interactive_authority_ready; then
+        ensure_interactive_material
+        interactive_mem_data_authority_ready ||
+            die "Shared Control Plane authority is ready, but the MEM data authority is not. Stop ordinary development runtimes and run './dev/mem-env authority repair-mem-data'."
+        return 0
+    fi
+
+    if [[ -e "${INTERACTIVE_STATE}" ]]; then
+        die "Shared interactive authority is incomplete or missing its authority marker: ${INTERACTIVE_STATE}. Refusing to guess or overwrite it."
+    fi
+
+    if ! interactive_legacy_retired &&
+       { legacy_local_state_present || legacy_container_state_present; }; then
+        legacy_authority_guidance
+    fi
+
+    initialize_fresh_interactive_authority
+}
+
+copy_tree_current_user() {
+    local source="$1"
+    local target="$2"
+    [[ -d "${source}" ]] || return 0
+    mkdir -p "${target}"
+    tar -C "${source}" -cf - . | tar --no-same-owner -C "${target}" -xf -
+}
+
+copy_legacy_container_volume() {
+    local target="$1"
+    mkdir -p "${target}"
+    docker run --rm \
+        -v "${LEGACY_CONTAINER_VOLUME_NAME}:/source:ro" \
+        alpine:3.20 tar -C /source -cf - . |
+        tar --no-same-owner -C "${target}" -xf -
+}
+
+canonicalize_legacy_local_data() {
+    local data_root="$1"
+    local old_db="${data_root}/mem-installer.dev.db"
+    local new_db="${data_root}/mem-control-plane.dev.db"
+
+    if [[ -e "${old_db}" && -e "${new_db}" ]]; then
+        die "Local legacy import contains both mem-installer.dev.db and mem-control-plane.dev.db; refusing an ambiguous database choice."
+    fi
+    if [[ -e "${old_db}" ]]; then
+        mv "${old_db}" "${new_db}"
+        [[ ! -e "${old_db}-wal" ]] || mv "${old_db}-wal" "${new_db}-wal"
+        [[ ! -e "${old_db}-shm" ]] || mv "${old_db}-shm" "${new_db}-shm"
+    fi
+
+    local old_keys="${data_root}/mem-data-protection-keys"
+    local new_keys="${data_root}/data-protection-keys"
+    if [[ -d "${old_keys}" && -d "${new_keys}" ]]; then
+        die "Local legacy import contains both old and canonical Data Protection key-ring directories; refusing an ambiguous key-ring choice."
+    fi
+    [[ ! -d "${old_keys}" ]] || mv "${old_keys}" "${new_keys}"
+}
+
+legacy_local_host_paths() {
+    python3 - \
+        "${REPO_ROOT}/installer/src/Api/appsettings.Development.json" \
+        "${LEGACY_LOCAL_MEM_DATA_ROOT}/instances" \
+        "${REPO_ROOT}/installer/src/Api/appsettings.json" <<'PY'
+import json, os, sys
+dev_path, fallback_instance_root, base_path = sys.argv[1:4]
+legacy_instance_root = fallback_instance_root
+if os.path.isfile(dev_path):
+    with open(dev_path, encoding="utf-8-sig") as handle:
+        dev=json.load(handle)
+    configured=dev.get("Provisioning", {}).get("InstanceDataRoot", "")
+    if isinstance(configured, str) and configured.strip():
+        legacy_instance_root=configured.strip()
+with open(base_path, encoding="utf-8-sig") as handle:
+    base=json.load(handle)
+print(legacy_instance_root)
+print(base.get("Coturn", {}).get("StorageRootPath", ""))
+PY
+}
+
+assert_legacy_local_resource_adoption_safe() {
+    local -a host_paths=()
+    mapfile -t host_paths < <(legacy_local_host_paths)
+
+    if [[ -n "${host_paths[0]:-}" ]] && path_has_entries "${host_paths[0]}"; then
+        die "Local authority adoption refused because the legacy local instance-data root contains managed resource data: ${host_paths[0]}. MEM will not copy or retarget live Docker bind mounts automatically."
+    fi
+    if [[ -n "${host_paths[1]:-}" ]] && path_has_entries "${host_paths[1]}"; then
+        die "Local authority adoption refused because the legacy local TURN storage root contains managed resource data: ${host_paths[1]}. MEM will not copy or retarget live Docker bind mounts automatically."
+    fi
+    if path_has_entries "${LEGACY_LOCAL_DATA_ROOT}/seq-local"; then
+        die "Local authority adoption refused because legacy local Seq host data exists. MEM will not silently retarget an existing Seq container bind mount."
+    fi
+}
+
+assert_authority_adoption_safe() {
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" ||
+       managed_process_running "${LOCAL_STATE}/vite.pid" "run dev" ||
+       port_is_listening 7105 || port_is_listening 5173; then
+        die "Authority adoption requires the local API and Vite to be stopped, including manual/VS Code processes."
+    fi
+    if container_running "${DEV_CONTAINER_NAME}"; then
+        die "Authority adoption requires ${DEV_CONTAINER_NAME} to be stopped. Run './dev/mem-env container down' first."
+    fi
+}
+
+authority_adopt() {
+    local source="$1"
+    case "${source}" in
+        local|container) ;;
+        *) die "authority adopt requires local or container" ;;
+    esac
+
+    require_docker
+    require_command tar
+    require_command python3
+    require_command ss
+    assert_authority_adoption_safe
+
+    [[ ! -e "${INTERACTIVE_STATE}" ]] ||
+        die "Shared interactive authority already exists. Refusing to replace it during adoption."
+
+    if [[ "${source}" == local ]]; then
+        legacy_local_state_present || die "No legacy local Control Plane state was found at ${LEGACY_LOCAL_DATA_ROOT}."
+    else
+        legacy_container_state_present || die "Legacy container state volume ${LEGACY_CONTAINER_VOLUME_NAME} was not found."
+    fi
+
+    local temp_root="${STATE_ROOT}/interactive.import.$$"
+    [[ ! -e "${temp_root}" ]] || die "Temporary authority import path already exists: ${temp_root}"
+    mkdir -p "${temp_root}/data"
+    trap 'rm -rf -- "${temp_root}"' RETURN
+
+    if [[ "${source}" == local ]]; then
+        assert_legacy_local_resource_adoption_safe
+        copy_tree_current_user "${LEGACY_LOCAL_DATA_ROOT}" "${temp_root}/data"
+        canonicalize_legacy_local_data "${temp_root}/data"
+
+        if [[ ! -s "${temp_root}/data/setup-token" && -s "${LOCAL_STATE}/setup-token" ]]; then
+            cp "${LOCAL_STATE}/setup-token" "${temp_root}/data/setup-token"
+            chmod 600 "${temp_root}/data/setup-token"
+        fi
+
+    else
+        copy_legacy_container_volume "${temp_root}/data"
+    fi
+
+    if [[ ! -s "${temp_root}/data/setup-token" ]]; then
+        umask 077
+        generate_setup_token > "${temp_root}/data/setup-token"
+    fi
+    chmod 600 "${temp_root}/data/setup-token"
+    ensure_development_certificate "${temp_root}/data"
+    write_authority_metadata "${temp_root}" "${source}"
+
+    mv "${temp_root}" "${INTERACTIVE_STATE}"
+    mkdir -p "${INTERACTIVE_HOST_DATA_ROOT}"
+    trap - RETURN
+    write_env_file "${INTERACTIVE_LEGACY_RETIREMENT_FILE}" \
+        "MEM_INTERACTIVE_LEGACY_RETIRED=1" \
+        "MEM_INTERACTIVE_LEGACY_SOURCE=${source}" \
+        "MEM_INTERACTIVE_LEGACY_RETIRED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    repair_interactive_mem_data
+
+    log "Adopted ${source} development state as the shared interactive Control Plane authority."
+    log "Legacy source state was preserved and is now ignored by ordinary local/container starts."
+}
+
+authority_status() {
+    printf 'MEM shared interactive development authority\n\n'
+    if interactive_authority_ready; then
+        status_line "Authority" "ready · shared by local/container"
+        status_line "Source" "$(read_authority_value MEM_INTERACTIVE_AUTHORITY_SOURCE || printf unknown)"
+        status_line "State root" "${INTERACTIVE_DATA_ROOT}"
+        status_line "MEM data root" "${INTERACTIVE_MEM_DATA_ROOT}"
+        status_line "Legacy MEM data" "${LEGACY_LOCAL_MEM_DATA_ROOT} · compatibility only"
+        status_line "MEM data authority" "$(interactive_mem_data_authority_ready && printf ready || printf 'migration required · authority repair-mem-data')"
+        status_line "Host data" "${INTERACTIVE_HOST_DATA_ROOT}"
+        local identity_file="${INTERACTIVE_DATA_ROOT}/control-plane/runtime-instance.json"
+        if [[ -s "${identity_file}" ]]; then
+            local owner
+            owner="$(python3 - "${identity_file}" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        value=json.load(handle)
+    print(value.get("controlPlaneInstanceId") or value.get("instanceId") or "unknown")
+except Exception:
+    print("unreadable")
+PY
+)"
+            status_line "Control Plane instance" "${owner}"
+        fi
+        return 0
+    fi
+
+    if [[ -e "${INTERACTIVE_STATE}" ]]; then
+        status_line "Authority" "incomplete · manual inspection required"
+        return 1
+    fi
+
+    if ! interactive_legacy_retired &&
+       { legacy_local_state_present || legacy_container_state_present; }; then
+        status_line "Authority" "migration required"
+        legacy_local_state_present && status_line "Legacy local state" "detected · choose with authority adopt local"
+        legacy_container_state_present && status_line "Legacy container state" "detected · choose with authority adopt container"
+        return 0
+    fi
+
+    status_line "Authority" "not initialized · next ordinary start will create fresh shared state"
+}
+
+normalize_interactive_local_ownership() {
+    local -a mounts=()
+    local -a targets=()
+
+    if [[ -d "${INTERACTIVE_DATA_ROOT}" ]]; then
+        mounts+=( -v "${INTERACTIVE_DATA_ROOT}:/control-plane-data" )
+        targets+=( /control-plane-data )
+    fi
+    if [[ -d "${INTERACTIVE_MEM_DATA_ROOT}" ]]; then
+        mounts+=( -v "${INTERACTIVE_MEM_DATA_ROOT}:/mem-data" )
+        targets+=( /mem-data )
+    fi
+    [[ ${#targets[@]} -gt 0 ]] || return 0
+
+    require_docker
+    require_command id
+    docker run --rm \
+        "${mounts[@]}" \
+        alpine:3.20 chown -R "$(id -u):$(id -g)" "${targets[@]}" >/dev/null
+}
+
+interactive_host_data_validate_root() {
+    [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]] || return 1
+
+    require_command realpath
+
+    [[ ! -L "${INTERACTIVE_HOST_DATA_ROOT}" ]] ||
+        die "Shared development host-data root may not be a symlink: ${INTERACTIVE_HOST_DATA_ROOT}"
+
+    local expected_root actual_root
+    expected_root="$(realpath -m "${CONTAINER_STATE}/host-data")"
+    actual_root="$(realpath -e "${INTERACTIVE_HOST_DATA_ROOT}")"
+    [[ "${actual_root}" == "${expected_root}" ]] ||
+        die "Shared development host-data root resolved outside the expected authority boundary: ${actual_root}"
+}
+
+interactive_host_data_scope_has_symlink() {
+    local scope="$1"
+    [[ -d "${scope}" ]] || return 1
+
+    local linked_entry
+    if ! linked_entry="$(find -P "${scope}" \
+        -path '*/media_store' -prune -o \
+        -type l -print -quit 2>/dev/null)"; then
+        # The ordinary developer account may not yet be able to traverse
+        # container-created control directories. Treat that as unknown here;
+        # the privileged ACL-reconciliation path performs the authoritative
+        # symlink inspection before mutating anything recursively.
+        return 2
+    fi
+
+    [[ -n "${linked_entry}" ]]
+}
+
+interactive_host_data_scope_has_symlink_privileged() {
+    local scope="$1"
+    local find_bin="$2"
+    [[ -d "${scope}" ]] || return 1
+
+    local linked_entry
+    if ! linked_entry="$(sudo -- "${find_bin}" -P "${scope}" \
+        -path '*/media_store' -prune -o \
+        -type l -print -quit 2>/dev/null)"; then
+        die "Could not inspect the bounded shared host-data scope safely under privileged traversal."
+    fi
+
+    [[ -n "${linked_entry}" ]]
+}
+
+interactive_host_data_verify_local_access() {
+    [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]] || return 0
+    interactive_host_data_validate_root
+
+    [[ -w "${INTERACTIVE_HOST_DATA_ROOT}" ]] || return 1
+
+    if [[ -d "${INTERACTIVE_HOST_DATA_ROOT}/instances" ]]; then
+        local inaccessible_path
+        if ! inaccessible_path="$(find -P "${INTERACTIVE_HOST_DATA_ROOT}/instances" \
+            -path '*/media_store' -prune -o \
+            \( -type d -o -type f \) ! -writable -print -quit 2>/dev/null)"; then
+            return 1
+        fi
+        [[ -z "${inaccessible_path}" ]] || return 1
+    fi
+
+    return 0
+}
+
+interactive_host_data_access_marker_matches() {
+    [[ -f "${INTERACTIVE_HOST_DATA_ACCESS_FILE}" ]] || return 1
+
+    local developer_uid expected_root actual_root
+    developer_uid="$(id -u)"
+    expected_root="$(realpath -m "${CONTAINER_STATE}/host-data")"
+    actual_root="$(realpath -e "${INTERACTIVE_HOST_DATA_ROOT}")"
+
+    local recorded_version recorded_uid recorded_root
+    recorded_version="$(sed -n 's/^MEM_DEV_HOST_DATA_ACCESS_VERSION=//p' "${INTERACTIVE_HOST_DATA_ACCESS_FILE}" | head -n 1)"
+    recorded_uid="$(sed -n 's/^MEM_DEV_HOST_DATA_ACCESS_UID=//p' "${INTERACTIVE_HOST_DATA_ACCESS_FILE}" | head -n 1)"
+    recorded_root="$(sed -n 's/^MEM_DEV_HOST_DATA_ACCESS_ROOT=//p' "${INTERACTIVE_HOST_DATA_ACCESS_FILE}" | head -n 1)"
+
+    [[ "${recorded_version}" == "2" &&
+       "${recorded_uid}" == "${developer_uid}" &&
+       "${recorded_root}" == "${actual_root}" &&
+       "${actual_root}" == "${expected_root}" ]]
+}
+
+prepare_interactive_host_data_for_local_mutation() {
+    [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]] || return 0
+
+    require_command find
+    require_command id
+    require_command realpath
+
+    interactive_host_data_validate_root
+
+    if interactive_host_data_scope_has_symlink "${INTERACTIVE_HOST_DATA_ROOT}/instances"; then
+        die "Shared development stack host-data contains a symlink outside excluded media payloads. Review it before local operation."
+    fi
+    if interactive_host_data_verify_local_access; then
+        return 0
+    fi
+
+    local developer_uid
+    developer_uid="$(id -u)"
+    die "Shared development host-data is not writable by developer UID ${developer_uid}. Run './dev/mem-env host-data access' while both ordinary Control Plane modes are stopped, then retry local development."
+}
+
+reconcile_interactive_host_data_for_local_switch() {
+    [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]] || return 0
+
+    require_command find
+    require_command id
+    require_command realpath
+
+    interactive_host_data_validate_root
+
+    local preflight_symlink_status=0
+    if interactive_host_data_scope_has_symlink "${INTERACTIVE_HOST_DATA_ROOT}/instances"; then
+        die "Shared development stack host-data contains a symlink outside excluded media payloads. Automatic switch reconciliation refused."
+    else
+        preflight_symlink_status=$?
+    fi
+
+    if [[ "${preflight_symlink_status}" -eq 2 ]]; then
+        log "Shared development host-data cannot be fully inspected by the developer UID before repair; the privileged bounded reconciliation will validate it before applying recursive ACLs."
+    fi
+
+    if interactive_host_data_verify_local_access; then
+        log "Shared development host-data already permits local developer mutation."
+        return 0
+    fi
+
+    local developer_uid
+    developer_uid="$(id -u)"
+    log "Shared development host-data needs local developer access reconciliation for UID ${developer_uid}."
+    log "The containerized Control Plane is stopped; applying the existing bounded ACL contract before local startup."
+    host_data_access_apply
+
+    interactive_host_data_verify_local_access ||
+        die "Automatic shared host-data reconciliation completed but local developer write access is still unavailable."
+}
+
+host_data_access_apply_acl_to_scope() {
+    local scope="$1"
+    local developer_uid="$2"
+    local setfacl_bin="$3"
+    local find_bin="$4"
+
+    [[ -d "${scope}" ]] || return 0
+
+    # Container-created control directories may not be traversable by the
+    # developer account yet. Run the bounded discovery under the already-
+    # authorized sudo context, while keeping the same media-store prune and
+    # developer-only ACL contract. This avoids requiring a second manual pass.
+    sudo -- "${find_bin}" -P "${scope}" \
+        -path '*/media_store' -prune -o \
+        -type d -exec \
+            "${setfacl_bin}" \
+                -m "u:${developer_uid}:rwx" \
+                -m "d:u:${developer_uid}:rwx" \
+                -- {} +
+
+    sudo -- "${find_bin}" -P "${scope}" \
+        -path '*/media_store' -prune -o \
+        -type f -exec \
+            "${setfacl_bin}" \
+                -m "u:${developer_uid}:rw-" \
+                -- {} +
+}
+
+host_data_access_apply() {
+    ensure_interactive_authority
+    [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]] ||
+        die "Shared development host-data does not exist yet: ${INTERACTIVE_HOST_DATA_ROOT}"
+
+    require_command find
+    require_command id
+    require_command realpath
+    require_command sudo
+    require_command ss
+
+    interactive_host_data_validate_root
+
+    if port_is_listening 7105 || port_is_listening 5173; then
+        die "Shared host-data access refused while the local API or Vite is running. Run './dev/mem-env local down' first."
+    fi
+
+    require_docker
+    if container_running "${DEV_CONTAINER_NAME}"; then
+        die "Shared host-data access refused while ${DEV_CONTAINER_NAME} is running. Run './dev/mem-env container down' first."
+    fi
+
+    local setfacl_bin find_bin
+    setfacl_bin="$(command -v setfacl 2>/dev/null || true)"
+    [[ -n "${setfacl_bin}" ]] ||
+        die "Shared host-data access requires 'setfacl' (Ubuntu/Kubuntu package: acl). Install it explicitly first."
+    find_bin="$(command -v find 2>/dev/null || true)"
+    [[ -n "${find_bin}" ]] ||
+        die "Shared host-data access requires 'find'."
+
+    local developer_uid actual_root
+    developer_uid="$(id -u)"
+    [[ "${developer_uid}" =~ ^[0-9]+$ ]] ||
+        die "Could not determine the current developer UID for shared host-data access."
+    actual_root="$(realpath -e "${INTERACTIVE_HOST_DATA_ROOT}")"
+
+    log "Shared development stack host-data contains container-owned files."
+    log "Authorizing a bounded ACL update for developer UID ${developer_uid}."
+    log "Container ownership and normal mode bits will be preserved; Matrix media payloads and protected platform-service secrets are excluded."
+
+    sudo -v ||
+        die "Shared host-data access refused because sudo authorization failed."
+
+    if interactive_host_data_scope_has_symlink_privileged \
+        "${INTERACTIVE_HOST_DATA_ROOT}/instances" \
+        "${find_bin}"; then
+        die "Shared development stack host-data contains a symlink outside excluded media payloads. ACL bootstrap refused."
+    fi
+
+    # The host-data root receives access for the developer, but deliberately no
+    # default ACL. Protected service trees such as platform/coturn retain their
+    # owner-only permission contract instead of inheriting developer ACLs.
+    sudo -- "${setfacl_bin}" \
+        -m "u:${developer_uid}:rwx" \
+        -- "${INTERACTIVE_HOST_DATA_ROOT}"
+
+    mkdir -p "${INTERACTIVE_HOST_DATA_ROOT}/instances"
+
+    host_data_access_apply_acl_to_scope \
+        "${INTERACTIVE_HOST_DATA_ROOT}/instances" \
+        "${developer_uid}" \
+        "${setfacl_bin}" \
+        "${find_bin}"
+
+    interactive_host_data_verify_local_access ||
+        die "Shared host-data ACL bootstrap completed but the local developer still lacks required write access. No authority marker was recorded."
+
+    write_env_file "${INTERACTIVE_HOST_DATA_ACCESS_FILE}" \
+        "MEM_DEV_HOST_DATA_ACCESS_VERSION=2" \
+        "MEM_DEV_HOST_DATA_ACCESS_UID=${developer_uid}" \
+        "MEM_DEV_HOST_DATA_ACCESS_ROOT=${actual_root}"
+
+    log "Shared development host-data access is ready for local source operation."
+}
+
+host_data_access_status() {
+    ensure_interactive_authority
+
+    printf 'MEM shared development host-data access\n\n'
+    status_line "Host data root" "${INTERACTIVE_HOST_DATA_ROOT}"
+
+    if [[ ! -d "${INTERACTIVE_HOST_DATA_ROOT}" ]]; then
+        status_line "Local mutation access" "not required · host-data not created"
+        return 0
+    fi
+
+    require_command find
+    require_command id
+    require_command realpath
+    interactive_host_data_validate_root
+
+    if interactive_host_data_verify_local_access; then
+        if interactive_host_data_access_marker_matches; then
+            status_line "Local mutation access" "ready · bounded ACL authority recorded"
+        else
+            status_line "Local mutation access" "currently writable · ACL authority marker not recorded"
+        fi
+    else
+        status_line "Local mutation access" "repair required · run ./dev/mem-env host-data access"
+    fi
+}
+
+host_data_command() {
+    local action="${1:-}"
+    [[ $# -eq 1 ]] || die "host-data requires exactly one action: status or access"
+
+    case "${action}" in
+        status) host_data_access_status ;;
+        access) host_data_access_apply ;;
+        *) die "host-data requires status or access" ;;
+    esac
+}
+
+ensure_local_environment() {
+    ensure_interactive_authority
+    normalize_interactive_local_ownership
+    prepare_interactive_host_data_for_local_mutation
+    mkdir -p "${LOCAL_STATE}"
+
+    write_env_file "${LOCAL_STATE}/runtime.env" \
+        "MEM_RUNTIME_MODE=local-development" \
+        "MEM_STATE_ROOT=${INTERACTIVE_DATA_ROOT}" \
+        "MEM_DATA_ROOT=${INTERACTIVE_MEM_DATA_ROOT}" \
+        "MEM_API_URL=${LOCAL_API_URL}" \
+        "MEM_WEB_URL=${LOCAL_WEB_URL}"
+}
+
+resolve_product_version() {
+    python3 - "${REPO_ROOT}/installer/src/Api/appsettings.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8-sig") as handle:
+    print(json.load(handle).get("Product", {}).get("Version", "0.2.0"))
+PY
+}
+
+resolve_commit() {
+    git -C "${REPO_ROOT}" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown\n'
+}
+
+ensure_container_environment() {
+    require_command python3
+    mkdir -p "${CONTAINER_STATE}"
+    local version commit build_date
+    version="$(resolve_product_version)"
+    commit="$(resolve_commit)"
+    build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    write_env_file "${CONTAINER_STATE}/runtime.env" \
+        "MEM_CONTROL_PLANE_IMAGE=mem-control-plane:local" \
+        "MEM_CONTROL_PLANE_HTTPS_PORT=${CONTAINER_HTTPS_PORT}" \
+        "MEM_CONTROL_PLANE_STATE_ROOT=${INTERACTIVE_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_MEM_DATA_ROOT=${INTERACTIVE_MEM_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_LEGACY_MEM_DATA_ROOT=${LEGACY_LOCAL_MEM_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_HOST_DATA_ROOT=${INTERACTIVE_HOST_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_NETWORK_NAME=${DEV_NETWORK_NAME}" \
+        "MEM_PRODUCT_VERSION=${version}" \
+        "MEM_COMMIT_SHA=${commit}" \
+        "MEM_BUILD_DATE=${build_date}"
+}
+
+compose() {
+    docker compose \
+        --env-file "${CONTAINER_STATE}/runtime.env" \
+        --file "${COMPOSE_FILE}" \
+        "$@"
+}
+
+container_exists() {
+    docker ps -a --format '{{.Names}}' | grep -Fxq "$1"
+}
+
+container_running() {
+    docker ps --format '{{.Names}}' | grep -Fxq "$1"
+}
+
+seq_container_name_for_mode() {
+    case "$1" in
+        local) printf '%s\n' "${LOCAL_SEQ_CONTAINER_NAME}" ;;
+        container) printf '%s\n' "${CONTAINER_SEQ_CONTAINER_NAME}" ;;
+        *) return 1 ;;
+    esac
+}
+
+seq_runtime_mode_for_mode() {
+    case "$1" in
+        local) printf '%s\n' 'local-development' ;;
+        container) printf '%s\n' 'containerized-development' ;;
+        *) return 1 ;;
+    esac
+}
+
+seq_preferred_host_port_for_mode() {
+    case "$1" in
+        local) printf '%s\n' "${LOCAL_SEQ_PREFERRED_HOST_PORT}" ;;
+        container) printf '%s\n' "${CONTAINER_SEQ_PREFERRED_HOST_PORT}" ;;
+        *) return 1 ;;
+    esac
+}
+
+docker_container_label() {
+    local name="$1"
+    local key="$2"
+    docker inspect --format "{{with index .Config.Labels \"${key}\"}}{{.}}{{end}}" "${name}" 2>/dev/null || true
+}
+
+seq_container_has_expected_context_labels() {
+    local mode="$1"
+    local name expected_runtime managed service runtime_mode
+    name="$(seq_container_name_for_mode "${mode}")" || return 1
+    expected_runtime="$(seq_runtime_mode_for_mode "${mode}")" || return 1
+    managed="$(docker_container_label "${name}" "${SEQ_MANAGED_LABEL}")"
+    service="$(docker_container_label "${name}" "${SEQ_SERVICE_LABEL}")"
+    runtime_mode="$(docker_container_label "${name}" "${SEQ_RUNTIME_MODE_LABEL}")"
+
+    [[ "${managed}" == "true" &&
+       "${service}" == "seq" &&
+       "${runtime_mode}" == "${expected_runtime}" ]]
+}
+
+seq_container_state() {
+    docker inspect --format '{{.State.Status}}' "$1" 2>/dev/null || true
+}
+
+seq_container_host_port() {
+    docker port "$1" 80/tcp 2>/dev/null | awk -F: 'NR == 1 { print $NF }'
+}
+
+seq_container_data_source() {
+    docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$1" 2>/dev/null || true
+}
+
+other_managed_seq_container_names() {
+    local name
+    docker ps -a \
+        --filter "label=${SEQ_MANAGED_LABEL}=true" \
+        --filter "label=${SEQ_SERVICE_LABEL}=seq" \
+        --format '{{.Names}}' 2>/dev/null | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        if [[ "${name}" != "${LOCAL_SEQ_CONTAINER_NAME}" &&
+              "${name}" != "${CONTAINER_SEQ_CONTAINER_NAME}" ]]; then
+            printf '%s\n' "${name}"
+        fi
+    done
+}
+
+runtime_control_plane_instance_for_mode() {
+    local mode="$1"
+    local url insecure expected_runtime payload
+    case "${mode}" in
+        local)
+            url="${LOCAL_API_URL}"
+            insecure=false
+            expected_runtime=local-development
+            ;;
+        container)
+            url="${CONTAINER_URL}"
+            insecure=true
+            expected_runtime=containerized-development
+            ;;
+        *) return 1 ;;
+    esac
+
+    payload="$(runtime_json "${url}" "${insecure}" 2>/dev/null)" || return 1
+    printf '%s' "${payload}" | python3 -c '
+import json, sys
+expected=sys.argv[1]
+v=json.load(sys.stdin)
+if v.get("runtimeMode") != expected:
+    raise SystemExit(1)
+owner=v.get("controlPlaneInstanceId")
+if not owner:
+    raise SystemExit(1)
+print(owner)
+' "${expected_runtime}"
+}
+
+seq_context_status() {
+    local mode="$1"
+    local name runtime_mode preferred_port state host_port owner active_owner ownership
+    name="$(seq_container_name_for_mode "${mode}")" || die "Unknown Seq context: ${mode}"
+    runtime_mode="$(seq_runtime_mode_for_mode "${mode}")"
+    preferred_port="$(seq_preferred_host_port_for_mode "${mode}")"
+
+    if ! container_exists "${name}"; then
+        status_line "Seq ${runtime_mode}" "not created · ${name} · preferred host port ${preferred_port}"
+        return 0
+    fi
+
+    state="$(seq_container_state "${name}")"
+    host_port="$(seq_container_host_port "${name}")"
+    [[ -n "${host_port}" ]] || host_port="not published"
+    status_line "Seq ${runtime_mode}" "${state:-unknown} · ${name} · host port ${host_port}"
+
+    if ! seq_container_has_expected_context_labels "${mode}"; then
+        status_line "Seq ownership" "label mismatch · read-only inspection only"
+        return 0
+    fi
+
+    owner="$(docker_container_label "${name}" "${SEQ_CONTROL_PLANE_INSTANCE_LABEL}")"
+    active_owner="$(runtime_control_plane_instance_for_mode "${mode}" 2>/dev/null || true)"
+    if [[ -z "${owner}" ]]; then
+        ownership="owner label missing"
+    elif [[ -z "${active_owner}" ]]; then
+        ownership="owned by ${owner} · active Control Plane unavailable"
+    elif [[ "${owner}" == "${active_owner}" ]]; then
+        ownership="matches active Control Plane · ${owner}"
+    else
+        ownership="different Control Plane · owner ${owner} · active ${active_owner}"
+    fi
+    status_line "Seq ownership" "${ownership}"
+}
+
+seq_safe_inspect() {
+    local mode="$1"
+    local name runtime_mode preferred_port state host_port data_source managed service runtime_label owner active_owner ownership
+    name="$(seq_container_name_for_mode "${mode}")" || die "Unknown Seq context: ${mode}"
+    runtime_mode="$(seq_runtime_mode_for_mode "${mode}")"
+    preferred_port="$(seq_preferred_host_port_for_mode "${mode}")"
+    container_exists "${name}" || die "Seq container ${name} does not exist."
+
+    state="$(seq_container_state "${name}")"
+    host_port="$(seq_container_host_port "${name}")"
+    data_source="$(seq_container_data_source "${name}")"
+    managed="$(docker_container_label "${name}" "${SEQ_MANAGED_LABEL}")"
+    service="$(docker_container_label "${name}" "${SEQ_SERVICE_LABEL}")"
+    runtime_label="$(docker_container_label "${name}" "${SEQ_RUNTIME_MODE_LABEL}")"
+    owner="$(docker_container_label "${name}" "${SEQ_CONTROL_PLANE_INSTANCE_LABEL}")"
+    active_owner="$(runtime_control_plane_instance_for_mode "${mode}" 2>/dev/null || true)"
+
+    if [[ -z "${owner}" ]]; then
+        ownership="unproven"
+    elif [[ -z "${active_owner}" ]]; then
+        ownership="active Control Plane unavailable"
+    elif [[ "${owner}" == "${active_owner}" ]]; then
+        ownership="matches active Control Plane"
+    else
+        ownership="different Control Plane"
+    fi
+
+    printf 'Seq development context\n\n'
+    status_line "Context" "${runtime_mode}"
+    status_line "Container" "${name}"
+    status_line "State" "${state:-unknown}"
+    status_line "Preferred host port" "${preferred_port}"
+    status_line "Observed host port" "${host_port:-not published}"
+    status_line "Data source" "${data_source:-not reported}"
+    status_line "Managed label" "${managed:-missing}"
+    status_line "Service label" "${service:-missing}"
+    status_line "Runtime label" "${runtime_label:-missing}"
+    status_line "Control Plane owner" "${owner:-missing}"
+    status_line "Ownership" "${ownership}"
+}
+
+seq_logs() {
+    local mode="$1"
+    local name
+    name="$(seq_container_name_for_mode "${mode}")" || die "Unknown Seq context: ${mode}"
+    container_exists "${name}" || die "Seq container ${name} does not exist."
+    seq_container_has_expected_context_labels "${mode}" ||
+        die "Refusing to follow logs for ${name}; its MEM context labels do not match ${mode}."
+    docker logs --follow --tail 200 "${name}"
+}
+
+remove_scoped_seq_for_reset() {
+    local mode="$1"
+    local name
+    name="$(seq_container_name_for_mode "${mode}")" || die "Unknown Seq context: ${mode}"
+    container_exists "${name}" || return 0
+    seq_container_has_expected_context_labels "${mode}" ||
+        die "Reset refused. Seq container ${name} exists but its MEM context labels do not match ${mode}."
+    docker rm --force "${name}" >/dev/null
+    log "Removed context-scoped Seq runtime ${name}; its state is deleted by the enclosing development reset."
+}
+
+ensure_runtime_network() {
+    local network_name="$1"
+
+    if docker network inspect "${network_name}" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    docker network create \
+        --driver bridge \
+        --label "${MEM_MANAGED_LABEL}=true" \
+        --label "${MEM_RESOURCE_LABEL}=development-network" \
+        "${network_name}" >/dev/null
+}
+
+ensure_state_path_material() {
+    local data_root="$1"
+    local token_file="$2"
+    [[ -s "${token_file}" ]] || die "Development setup token is missing: ${token_file}"
+    mkdir -p "${data_root}"
+    if [[ "${token_file}" != "${data_root}/setup-token" ]]; then
+        umask 077
+        cp "${token_file}" "${data_root}/setup-token"
+    fi
+    chmod 600 "${data_root}/setup-token"
+    ensure_development_certificate "${data_root}"
+}
+
+
+runtime_json() {
+    local url="$1"
+    local insecure="${2:-false}"
+    local args=(--fail --silent --show-error --max-time 4)
+    [[ "${insecure}" == true ]] && args+=(--insecure)
+    curl "${args[@]}" "${url}/health/runtime"
+}
+
+format_runtime_json() {
+    python3 -c '
+import json, sys
+v=json.load(sys.stdin)
+print("Runtime mode              {}".format(v.get("runtimeMode", "unknown")))
+print("Control Plane instance    {}".format(v.get("controlPlaneInstanceId", "unknown")))
+print("API process instance      {}".format(v.get("apiProcessInstanceId", "unknown")))
+print("UI delivery               {}".format(v.get("uiDeliveryMode", "unknown")))
+print("Version                   {}".format(v.get("version", "unknown")))
+print("Validation                {}".format(v.get("validationState", "unknown")))
+'
+}
+
+assert_runtime() {
+    local url="$1"
+    local expected_mode="$2"
+    local expected_ui="$3"
+    local insecure="${4:-false}"
+    runtime_json "${url}" "${insecure}" | python3 -c '
+import json, sys
+expected_mode=sys.argv[1]
+expected_ui=sys.argv[2]
+v=json.load(sys.stdin)
+if v.get("runtimeMode") != expected_mode:
+    raise SystemExit(f"expected runtime mode {expected_mode}, received {v.get(chr(114)+chr(117)+chr(110)+chr(116)+chr(105)+chr(109)+chr(101)+chr(77)+chr(111)+chr(100)+chr(101))}")
+if v.get("uiDeliveryMode") != expected_ui:
+    raise SystemExit(f"expected UI mode {expected_ui}, received {v.get(chr(117)+chr(105)+chr(68)+chr(101)+chr(108)+chr(105)+chr(118)+chr(101)+chr(114)+chr(121)+chr(77)+chr(111)+chr(100)+chr(101))}")
+' "${expected_mode}" "${expected_ui}"
+}
+
+wait_for_runtime() {
+    local url="$1"
+    local expected_mode="$2"
+    local expected_ui="$3"
+    local insecure="${4:-false}"
+    for _ in $(seq 1 90); do
+        if assert_runtime "${url}" "${expected_mode}" "${expected_ui}" "${insecure}" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+ensure_port_free() {
+    local port="$1"
+    local label="$2"
+    if port_is_listening "${port}"; then
+        die "${label} port ${port} is already occupied. The harness will not kill or remap an unrelated process."
+    fi
+}
+
+local_up() {
+    local watch_enabled="${1:-true}"
+    [[ "${watch_enabled}" == true || "${watch_enabled}" == false ]] ||
+        die "Internal local API watch mode must be true or false."
+
+    require_command dotnet
+    require_command npm
+    require_command curl
+    require_command python3
+    require_command ss
+    require_command setsid
+    require_docker
+    require_exclusive_docker_host ""
+
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" ||
+       managed_process_running "${LOCAL_STATE}/vite.pid" "run dev"; then
+        die "The local environment is already running under this harness."
+    fi
+
+    ensure_port_free 7105 "Local API"
+    ensure_port_free 5173 "Vite"
+    ensure_local_environment
+
+    if [[ ! -d "${WEB_ROOT}/node_modules" ]]; then
+        log "Installing Web dependencies with npm ci."
+        (cd "${WEB_ROOT}" && npm ci)
+    fi
+
+    local -a api_command
+    if [[ "${watch_enabled}" == true ]]; then
+        api_command=(
+            dotnet watch
+            --project "${LOCAL_API_PROJECT}"
+            --no-hot-reload
+            --non-interactive
+            run
+            --no-launch-profile
+        )
+        log "Managed local API source watch is enabled; backend saves trigger a full API restart."
+    else
+        api_command=(
+            dotnet run
+            --project "${LOCAL_API_PROJECT}"
+            --no-launch-profile
+        )
+        log "Managed local API source watch is disabled for this session."
+    fi
+
+    start_managed_process \
+        "local API" \
+        "${LOCAL_STATE}/api.pid" \
+        "${LOCAL_STATE}/api.log" \
+        "Api.csproj" \
+        env \
+            ASPNETCORE_ENVIRONMENT=Development \
+            ASPNETCORE_URLS="${LOCAL_API_URL}" \
+            MEM_RUNTIME_MODE=local-development \
+            MEM_STATE_ROOT="${INTERACTIVE_DATA_ROOT}" \
+            MEM_DATA_ROOT="${INTERACTIVE_MEM_DATA_ROOT}" \
+            MEM_CONTROL_PLANE_SETUP_TOKEN_PATH="${INTERACTIVE_SETUP_TOKEN_PATH}" \
+            MEM_DEV_ALLOW_SHARED_DOCKER_HOST=false \
+            InstallerAuth__DevelopmentSetupToken= \
+            MemRuntime__UiDeliveryMode=vite \
+            Aio__SqlitePath="${INTERACTIVE_SQLITE_PATH}" \
+            DataProtection__KeyRingPath="${INTERACTIVE_DATA_ROOT}/data-protection-keys" \
+            Certificates__Storage__RootPath="${INTERACTIVE_DATA_ROOT}/certificates" \
+            Diagnostics__Logging__FilePath="${INTERACTIVE_DATA_ROOT}/logs/control-plane/mem-control-plane-.clef" \
+            Diagnostics__SafeEvents__RootPath="${INTERACTIVE_DATA_ROOT}/diagnostics" \
+            Diagnostics__Seq__HostDataPath="${INTERACTIVE_HOST_DATA_ROOT}/seq" \
+            Diagnostics__Seq__DeliveryStatePath="${INTERACTIVE_DATA_ROOT}/diagnostics/seq-delivery.json" \
+            Diagnostics__Seq__SecretRootPath="${INTERACTIVE_DATA_ROOT}/secrets/seq" \
+            Diagnostics__Seq__BootstrapStatePath="${INTERACTIVE_DATA_ROOT}/diagnostics/seq-bootstrap.json" \
+            Diagnostics__Seq__ApiKeyFilePath="${INTERACTIVE_DATA_ROOT}/secrets/seq/ingestion-api-key" \
+            Diagnostics__Seq__AdminPasswordHashFilePath="${INTERACTIVE_DATA_ROOT}/secrets/seq/admin-password-hash" \
+            Provisioning__InstanceDataRoot="${INTERACTIVE_HOST_DATA_ROOT}/instances" \
+            Coturn__StorageRootPath="${INTERACTIVE_HOST_DATA_ROOT}/platform/coturn" \
+        "${api_command[@]}"
+
+    if ! wait_for_runtime "${LOCAL_API_URL}" local-development vite false; then
+        tail -n 120 "${LOCAL_STATE}/api.log" >&2 || true
+        local_down || true
+        die "The local API did not report the expected authoritative runtime context."
+    fi
+
+    start_managed_process \
+        "Vite UI" \
+        "${LOCAL_STATE}/vite.pid" \
+        "${LOCAL_STATE}/vite.log" \
+        "run dev" \
+        env npm --prefix "${WEB_ROOT}" run dev -- \
+            --host 127.0.0.1 \
+            --port 5173 \
+            --strictPort
+
+    for _ in $(seq 1 60); do
+        if curl --fail --silent --show-error --max-time 3 "${LOCAL_WEB_URL}/health/ready" >/dev/null 2>&1; then
+            log "Local development is running: ${LOCAL_WEB_URL}"
+            log "Setup token: ./dev/mem-env local token"
+            return 0
+        fi
+        sleep 1
+    done
+
+    tail -n 120 "${LOCAL_STATE}/vite.log" >&2 || true
+    local_down || true
+    die "Vite did not become reachable on the expected port."
+}
+
+local_down() {
+    local result=0
+    local api_shutdown_signal="TERM"
+
+    # dotnet watch treats termination of its child application as a normal
+    # watched-process exit and can remain alive waiting for a source change.
+    # Request Ctrl+C semantics from the owned watch process group so both the
+    # ASP.NET Core child and the watcher complete their normal shutdown path.
+    if managed_process_running "${LOCAL_STATE}/api.pid" "dotnet watch"; then
+        api_shutdown_signal="INT"
+    fi
+
+    stop_managed_process "Vite UI" "${LOCAL_STATE}/vite.pid" "run dev" || result=1
+    stop_managed_process \
+        "local API" \
+        "${LOCAL_STATE}/api.pid" \
+        "Api.csproj" \
+        "${api_shutdown_signal}" || result=1
+    return "${result}"
+}
+
+local_logs() {
+    mkdir -p "${LOCAL_STATE}"
+    touch "${LOCAL_STATE}/api.log" "${LOCAL_STATE}/vite.log"
+    tail -n 200 -F "${LOCAL_STATE}/api.log" "${LOCAL_STATE}/vite.log"
+}
+
+container_build() {
+    require_docker
+    require_command python3
+    ensure_container_environment
+    log "Building production-shaped image mem-control-plane:local."
+    compose build mem-control-plane
+}
+
+container_up() {
+    require_docker
+    require_command curl
+    require_command python3
+    require_command ss
+    validate_port "${CONTAINER_HTTPS_PORT}" || die "Invalid container HTTPS port: ${CONTAINER_HTTPS_PORT}"
+
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" ||
+       managed_process_running "${LOCAL_STATE}/vite.pid" "run dev"; then
+        die "The local source environment is active. Use './dev/mem-env switch container' for a safe transition."
+    fi
+
+    if port_is_listening 7105 || port_is_listening 5173; then
+        die "A local API or Vite listener is active outside this harness. Stop it explicitly before starting the containerized Control Plane."
+    fi
+
+    require_exclusive_docker_host "${DEV_CONTAINER_NAME}"
+    ensure_interactive_authority
+    ensure_container_environment
+    ensure_runtime_network "${DEV_NETWORK_NAME}"
+
+    if container_running "${DEV_CONTAINER_NAME}"; then
+        assert_runtime "${CONTAINER_URL}" containerized-development embedded-spa true ||
+            die "The running development container does not expose the expected runtime context."
+        log "Containerized development is already running: ${CONTAINER_URL}"
+        return 0
+    fi
+
+    ensure_port_free "${CONTAINER_HTTPS_PORT}" "Containerized Control Plane"
+    docker image inspect mem-control-plane:local >/dev/null 2>&1 ||
+        die "Local image mem-control-plane:local is missing. Run './dev/mem-env container build' first."
+
+    ensure_interactive_material
+    compose up --detach --no-build mem-control-plane
+
+    if ! wait_for_runtime "${CONTAINER_URL}" containerized-development embedded-spa true; then
+        compose logs --no-color --tail 160 mem-control-plane >&2 || true
+        compose down --remove-orphans || true
+        die "The container did not report containerized-development with embedded SPA delivery. State was preserved."
+    fi
+
+    log "Containerized development is running: ${CONTAINER_URL}"
+    log "Setup token: ./dev/mem-env container token"
+}
+
+container_down() {
+    require_docker
+    ensure_container_environment
+    compose down --remove-orphans
+    normalize_interactive_local_ownership
+    log "Containerized development stopped. Shared interactive state was preserved."
+}
+
+container_logs() {
+    require_docker
+    ensure_container_environment
+    compose logs --follow --tail 200 mem-control-plane
+}
+
+print_token() {
+    local mode="$1"
+    case "${mode}" in
+        local|container)
+            require_docker
+            ensure_interactive_authority
+            cat "${INTERACTIVE_SETUP_TOKEN_PATH}"
+            ;;
+        *)
+            die "Unknown token mode: ${mode}"
+            ;;
+    esac
+}
+
+prepare_e2e_local_environment() {
+    [[ ! -d "${E2E_LOCAL_STATE}" ]] || safe_remove_directory "${E2E_STATE_ROOT}/local" "${E2E_LOCAL_STATE}"
+    mkdir -p "${E2E_LOCAL_DATA_ROOT}" "${E2E_LOCAL_MEM_DATA_ROOT}"
+    umask 077
+    generate_setup_token > "${E2E_LOCAL_STATE}/setup-token"
+    chmod 600 "${E2E_LOCAL_STATE}/setup-token"
+}
+
+e2e_local_start() {
+    local preserve_state="${1:-false}"
+    require_command dotnet; require_command npm; require_command curl; require_command python3; require_command ss; require_command setsid
+    require_docker
+    require_exclusive_docker_host ""
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" || managed_process_running "${LOCAL_STATE}/vite.pid" "run dev" || container_running "${DEV_CONTAINER_NAME}"; then
+        die "The ordinary developer environment is active. Stop it before running E2E."
+    fi
+    ensure_port_free 7105 "E2E local API"; ensure_port_free 5173 "E2E Vite"
+    [[ "${preserve_state}" == true ]] || prepare_e2e_local_environment
+    [[ -s "${E2E_LOCAL_STATE}/setup-token" ]] || die "E2E local setup token is missing."
+    [[ -d "${WEB_ROOT}/node_modules" ]] || (cd "${WEB_ROOT}" && npm ci)
+    start_managed_process "E2E local API" "${E2E_LOCAL_STATE}/api.pid" "${E2E_LOCAL_STATE}/api.log" "Api.csproj" \
+        env ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS="${LOCAL_API_URL}" MEM_RUNTIME_MODE=local-development \
+        MEM_STATE_ROOT="${E2E_LOCAL_DATA_ROOT}" MEM_DATA_ROOT="${E2E_LOCAL_MEM_DATA_ROOT}" MEM_CONTROL_PLANE_SETUP_TOKEN_PATH="${E2E_LOCAL_STATE}/setup-token" \
+        MEM_DEV_ALLOW_SHARED_DOCKER_HOST=false InstallerAuth__DevelopmentSetupToken= MemRuntime__UiDeliveryMode=vite \
+        Aio__SqlitePath="${E2E_LOCAL_DATA_ROOT}/mem.db" DataProtection__KeyRingPath="${E2E_LOCAL_DATA_ROOT}/keys" \
+        Certificates__Storage__RootPath="${E2E_LOCAL_DATA_ROOT}/certificates" \
+        Diagnostics__Logging__FilePath="${E2E_LOCAL_DATA_ROOT}/logs/control-plane/mem-control-plane-.clef" \
+        Diagnostics__SafeEvents__RootPath="${E2E_LOCAL_DATA_ROOT}/diagnostics" \
+        Diagnostics__Seq__HostDataPath="${E2E_LOCAL_DATA_ROOT}/seq" \
+        Diagnostics__Seq__DeliveryStatePath="${E2E_LOCAL_DATA_ROOT}/diagnostics/seq-delivery.json" \
+        Diagnostics__Seq__SecretRootPath="${E2E_LOCAL_DATA_ROOT}/secrets/seq" \
+        Diagnostics__Seq__BootstrapStatePath="${E2E_LOCAL_DATA_ROOT}/diagnostics/seq-bootstrap.json" \
+        Diagnostics__Seq__ApiKeyFilePath="${E2E_LOCAL_DATA_ROOT}/secrets/seq/ingestion-api-key" \
+        Diagnostics__Seq__AdminPasswordHashFilePath="${E2E_LOCAL_DATA_ROOT}/secrets/seq/admin-password-hash" \
+        Provisioning__InstanceDataRoot="${E2E_LOCAL_DATA_ROOT}/host-data/instances" Coturn__StorageRootPath="${E2E_LOCAL_DATA_ROOT}/host-data/platform/coturn" \
+        dotnet run --project "${LOCAL_API_PROJECT}" --no-launch-profile
+    wait_for_runtime "${LOCAL_API_URL}" local-development vite false || { tail -n 120 "${E2E_LOCAL_STATE}/api.log" >&2 || true; return 1; }
+    start_managed_process "E2E Vite UI" "${E2E_LOCAL_STATE}/vite.pid" "${E2E_LOCAL_STATE}/vite.log" "run dev" \
+        env npm --prefix "${WEB_ROOT}" run dev -- --host 127.0.0.1 --port 5173 --strictPort
+    for _ in $(seq 1 60); do curl --fail --silent --show-error --max-time 3 "${LOCAL_WEB_URL}/health/ready" >/dev/null 2>&1 && return 0; sleep 1; done
+    tail -n 120 "${E2E_LOCAL_STATE}/vite.log" >&2 || true; return 1
+}
+
+e2e_local_stop() {
+    local result=0
+    stop_managed_process "E2E Vite UI" "${E2E_LOCAL_STATE}/vite.pid" "run dev" || result=1
+    stop_managed_process "E2E local API" "${E2E_LOCAL_STATE}/api.pid" "Api.csproj" || result=1
+    return "${result}"
+}
+
+e2e_container_prepare() {
+    container_exists "${E2E_CONTAINER_NAME}" && docker rm -f "${E2E_CONTAINER_NAME}" >/dev/null || true
+    docker network rm "${E2E_NETWORK_NAME}" >/dev/null 2>&1 || true
+    [[ ! -d "${E2E_CONTAINER_STATE}" ]] || safe_remove_directory "${E2E_STATE_ROOT}/container" "${E2E_CONTAINER_STATE}"
+    mkdir -p "${E2E_CONTAINER_DATA_ROOT}" "${E2E_CONTAINER_MEM_DATA_ROOT}" "${E2E_CONTAINER_LEGACY_MEM_DATA_ROOT}" "${E2E_CONTAINER_HOST_DATA_ROOT}"
+    ensure_runtime_network "${E2E_NETWORK_NAME}"
+    local version commit build_date
+    version="$(resolve_product_version)"; commit="$(resolve_commit)"; build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    umask 077
+    generate_setup_token > "${E2E_CONTAINER_STATE}/setup-token"
+    chmod 600 "${E2E_CONTAINER_STATE}/setup-token"
+    ensure_state_path_material "${E2E_CONTAINER_DATA_ROOT}" "${E2E_CONTAINER_STATE}/setup-token"
+    write_env_file "${E2E_CONTAINER_STATE}/runtime.env" \
+        "MEM_CONTROL_PLANE_IMAGE=mem-control-plane:local" "MEM_CONTROL_PLANE_HTTPS_PORT=8443" \
+        "MEM_CONTROL_PLANE_STATE_ROOT=${E2E_CONTAINER_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_MEM_DATA_ROOT=${E2E_CONTAINER_MEM_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_LEGACY_MEM_DATA_ROOT=${E2E_CONTAINER_LEGACY_MEM_DATA_ROOT}" \
+        "MEM_CONTROL_PLANE_HOST_DATA_ROOT=${E2E_CONTAINER_HOST_DATA_ROOT}" "MEM_CONTROL_PLANE_CONTAINER_NAME=${E2E_CONTAINER_NAME}" \
+        "MEM_CONTROL_PLANE_NETWORK_NAME=${E2E_NETWORK_NAME}" \
+        "MEM_CONTROL_PLANE_COMPOSE_PROJECT=${E2E_COMPOSE_PROJECT}" "MEM_PRODUCT_VERSION=${version}" "MEM_COMMIT_SHA=${commit}" "MEM_BUILD_DATE=${build_date}"
+}
+
+compose_e2e() { docker compose --env-file "${E2E_CONTAINER_STATE}/runtime.env" --file "${COMPOSE_FILE}" "$@"; }
+
+e2e_container_start() {
+    local preserve_state="${1:-false}"
+    require_docker; require_command curl; require_command python3; require_command ss
+    require_exclusive_docker_host "${E2E_CONTAINER_NAME}"
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj" || managed_process_running "${LOCAL_STATE}/vite.pid" "run dev" || container_running "${DEV_CONTAINER_NAME}"; then
+        die "The ordinary developer environment is active. Stop it before running E2E."
+    fi
+    if [[ "${preserve_state}" != true ]]; then
+        ensure_port_free 8443 "E2E containerized Control Plane"
+        e2e_container_prepare
+        compose_e2e build mem-control-plane
+        compose_e2e up --detach --no-build mem-control-plane
+    else
+        container_running "${E2E_CONTAINER_NAME}" || die "The E2E container is not running for restart proof."
+        compose_e2e restart mem-control-plane
+    fi
+    wait_for_runtime "https://127.0.0.1:8443" containerized-development embedded-spa true
+}
+
+e2e_container_cleanup() {
+    [[ ! -f "${E2E_CONTAINER_STATE}/runtime.env" ]] || compose_e2e down --remove-orphans >/dev/null 2>&1 || true
+    docker network rm "${E2E_NETWORK_NAME}" >/dev/null 2>&1 || true
+    [[ ! -d "${E2E_CONTAINER_STATE}" ]] || safe_remove_directory "${E2E_STATE_ROOT}/container" "${E2E_CONTAINER_STATE}"
+}
+
+run_parity_playwright() {
+    local mode="$1" phase="$2" base_url setup_token auth_file expected_mode expected_ui script
+    case "${mode}" in
+        local) base_url="${LOCAL_WEB_URL}"; setup_token="$(cat "${E2E_LOCAL_STATE}/setup-token")"; auth_file="${E2E_AUTH_FILE_LOCAL}"; expected_mode=local-development; expected_ui=vite; script=test:e2e:local ;;
+        container) base_url=https://127.0.0.1:8443; setup_token="$(cat "${E2E_CONTAINER_STATE}/setup-token")"; auth_file="${E2E_AUTH_FILE_CONTAINER}"; expected_mode=containerized-development; expected_ui=embedded-spa; script=test:e2e:container ;;
+        *) die "Unknown E2E mode: ${mode}" ;;
+    esac
+    [[ "${phase}" != restart ]] || script="${script}:restart"
+    env MEM_E2E_BASE_URL="${base_url}" MEM_E2E_SETUP_TOKEN="${setup_token}" MEM_E2E_AUTH_FILE="${auth_file}" \
+        MEM_E2E_EXPECTED_RUNTIME_MODE="${expected_mode}" MEM_E2E_EXPECTED_UI_DELIVERY_MODE="${expected_ui}" \
+        npm --prefix "${WEB_ROOT}" run "${script}"
+}
+
+e2e_run_local() (
+    set -Eeuo pipefail
+    trap 'e2e_local_stop >/dev/null 2>&1 || true; [[ ! -d "${E2E_LOCAL_STATE}" ]] || safe_remove_directory "${E2E_STATE_ROOT}/local" "${E2E_LOCAL_STATE}"' EXIT
+    e2e_local_start false; run_parity_playwright local bootstrap; e2e_local_stop; e2e_local_start true; run_parity_playwright local restart
+    log "E2E local-development passed."
+)
+
+e2e_run_container() (
+    set -Eeuo pipefail
+    trap 'e2e_container_cleanup' EXIT
+    e2e_container_start false; run_parity_playwright container bootstrap; e2e_container_start true; run_parity_playwright container restart
+    log "E2E containerized-development passed."
+)
+
+e2e_command() {
+    case "${1:-}" in
+        local) e2e_run_local ;;
+        container) e2e_run_container ;;
+        all) e2e_run_local; e2e_run_container; log "E2E all passed: local-development then containerized-development." ;;
+        *) die "e2e requires local, container, or all" ;;
+    esac
+}
+
+status_line() {
+    printf '%-27s %s\n' "$1" "$2"
+}
+
+managed_local_api_watch_enabled() {
+    local pid
+    pid="$(read_pid_file "${LOCAL_STATE}/api.pid" 2>/dev/null || true)"
+    [[ -n "${pid}" ]] || return 1
+    pid_matches "${pid}" "dotnet watch"
+}
+
+status() {
+    require_command curl
+    require_command python3
+    require_command ss
+    printf 'MEM developer environment\n\n'
+
+    if interactive_authority_ready; then
+        status_line "Interactive authority" "shared · ready"
+        status_line "Authority source" "$(read_authority_value MEM_INTERACTIVE_AUTHORITY_SOURCE || printf unknown)"
+        status_line "MEM data root" "${INTERACTIVE_MEM_DATA_ROOT}"
+    elif [[ -e "${INTERACTIVE_STATE}" ]]; then
+        status_line "Interactive authority" "incomplete · manual inspection required"
+    elif ! interactive_legacy_retired && { legacy_local_state_present || legacy_container_state_present; }; then
+        status_line "Interactive authority" "migration required · use authority adopt local|container"
+    else
+        status_line "Interactive authority" "not initialized · next start creates shared state"
+    fi
+
+    if managed_process_running "${LOCAL_STATE}/api.pid" "Api.csproj"; then
+        status_line "Local API" "running · ${LOCAL_API_URL}"
+        if managed_local_api_watch_enabled; then
+            status_line "API source watch" "enabled · full restart on backend save"
+        else
+            status_line "API source watch" "disabled · one-shot process"
+        fi
+        local local_runtime
+        if local_runtime="$(runtime_json "${LOCAL_API_URL}" false 2>/dev/null)"; then
+            printf '%s' "${local_runtime}" | format_runtime_json
+        else
+            status_line "Local runtime context" "unavailable"
+        fi
+    elif port_is_listening 7105; then
+        status_line "Local API" "occupied by an unmanaged process"
+    else
+        status_line "Local API" "stopped"
+    fi
+
+    if managed_process_running "${LOCAL_STATE}/vite.pid" "run dev"; then
+        status_line "Vite UI" "running · ${LOCAL_WEB_URL}"
+    elif port_is_listening 5173; then
+        status_line "Vite UI" "occupied by an unmanaged process"
+    else
+        status_line "Vite UI" "stopped"
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        if container_running "${DEV_CONTAINER_NAME}"; then
+            status_line "Containerized Control Plane" "running · ${CONTAINER_URL}"
+            local container_runtime
+            if container_runtime="$(runtime_json "${CONTAINER_URL}" true 2>/dev/null)"; then
+                printf '%s' "${container_runtime}" | format_runtime_json
+            else
+                status_line "Container runtime context" "unavailable"
+            fi
+        elif container_exists "${DEV_CONTAINER_NAME}"; then
+            status_line "Containerized Control Plane" "stopped"
+        else
+            status_line "Containerized Control Plane" "not created"
+        fi
+
+        printf '\nSeq runtimes\n'
+        seq_context_status local
+        seq_context_status container
+        local other_seq
+        other_seq="$(other_managed_seq_container_names | paste -sd ', ' -)"
+        if [[ -n "${other_seq}" ]]; then
+            status_line "Other MEM Seq runtimes" "${other_seq} · observed only"
+        fi
+
+        local other
+        other="$(competing_control_plane_names "${DEV_CONTAINER_NAME}")"
+        if [[ -n "${other}" ]]; then
+            status_line "Other MEM controllers" "$(echo "${other}" | paste -sd ', ' -)"
+            status_line "Docker ownership" "conflict"
+        else
+            status_line "Docker ownership" "exclusive"
+        fi
+    else
+        status_line "Docker" "unavailable"
+    fi
+}
+
+doctor() {
+    local failed=false
+    for command in bash curl docker dotnet git id npm openssl python3 setsid ss tar; do
+        if command -v "${command}" >/dev/null 2>&1; then
+            status_line "${command}" "available"
+        else
+            status_line "${command}" "missing"
+            failed=true
+        fi
+    done
+
+    if command -v docker >/dev/null 2>&1; then
+        if docker info >/dev/null 2>&1; then
+            status_line "Docker daemon" "available"
+        else
+            status_line "Docker daemon" "unavailable to current user"
+            failed=true
+        fi
+        if docker compose version >/dev/null 2>&1; then
+            local compose_version
+            compose_version="$(docker compose version --short 2>/dev/null | tr -d '\r' | head -n 1)"
+            if compose_supports_additional_contexts "${compose_version}"; then
+                status_line "Docker Compose" "${compose_version} · additional contexts supported"
+            else
+                status_line "Docker Compose" "${compose_version:-unknown} · requires ${MIN_COMPOSE_ADDITIONAL_CONTEXTS_VERSION}+"
+                failed=true
+            fi
+        else
+            status_line "Docker Compose" "missing"
+            failed=true
+        fi
+    fi
+
+    [[ "${failed}" == false ]] || return 1
+}
+
+host_reset_is_protected_control_plane_name() {
+    local name="$1"
+    [[ "${name}" == "mem-control-plane" ||
+       "${name}" == "mem-installer" ]]
+}
+
+host_reset_is_legacy_mem_name() {
+    local name="$1"
+    [[ "${name}" == mem-* ]]
+}
+
+host_reset_managed_container() {
+    local name="$1"
+    [[ "$(docker_container_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]]
+}
+
+docker_volume_label() {
+    local name="$1"
+    local key="$2"
+    docker volume inspect \
+        --format "{{with index .Labels \"${key}\"}}{{.}}{{end}}" \
+        "${name}" 2>/dev/null || true
+}
+
+docker_container_named_volumes() {
+    local name="$1"
+    docker inspect \
+        --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' \
+        "${name}" 2>/dev/null | awk 'NF' || true
+}
+
+host_reset_is_legacy_mem_volume_name() {
+    local name="$1"
+    [[ "${name}" == mem-* || "${name}" == mem_* ]]
+}
+
+host_reset_is_mem_compose_project() {
+    local project="$1"
+    [[ "${project}" == "mem" ||
+       "${project}" == mem-* ||
+       "${project}" == message-easy-mode* ]]
+}
+
+host_reset_volume_has_mem_compose_provenance() {
+    local name="$1"
+    local project
+    project="$(docker_volume_label "${name}" "${COMPOSE_PROJECT_LABEL}")"
+    [[ -n "${project}" ]] && host_reset_is_mem_compose_project "${project}"
+}
+
+docker_network_label() {
+    local name="$1"
+    local key="$2"
+    docker network inspect \
+        --format "{{with index .Labels \"${key}\"}}{{.}}{{end}}" \
+        "${name}" 2>/dev/null || true
+}
+
+host_reset_list_protected_control_planes() {
+    local name
+    docker ps -a --format '{{.Names}}' 2>/dev/null | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        host_reset_is_protected_control_plane_name "${name}" &&
+            printf '%s\n' "${name}"
+    done
+}
+
+host_reset_list_target_containers() {
+    local include_canonical="${1:-false}"
+    local name
+    docker ps -a --format '{{.Names}}' 2>/dev/null | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+
+        if host_reset_is_protected_control_plane_name "${name}"; then
+            [[ "${include_canonical}" == true ]] && printf '%s\n' "${name}"
+            continue
+        fi
+
+        if host_reset_managed_container "${name}" ||
+           host_reset_is_legacy_mem_name "${name}"; then
+            printf '%s\n' "${name}"
+        fi
+    done | LC_ALL=C sort -u
+}
+
+host_reset_list_target_container_volumes() {
+    local include_canonical="${1:-false}"
+    local container_name
+    while IFS= read -r container_name; do
+        [[ -n "${container_name}" ]] || continue
+        docker_container_named_volumes "${container_name}"
+    done < <(host_reset_list_target_containers "${include_canonical}")
+}
+
+host_reset_list_target_volumes() {
+    local include_canonical="${1:-false}"
+    {
+        local name
+        docker volume ls --format '{{.Name}}' 2>/dev/null | while IFS= read -r name; do
+            [[ -n "${name}" ]] || continue
+            if [[ "$(docker_volume_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]] ||
+               host_reset_volume_has_mem_compose_provenance "${name}" ||
+               host_reset_is_legacy_mem_volume_name "${name}"; then
+                printf '%s\n' "${name}"
+            fi
+        done
+
+        # Some managed services historically let Docker create their named
+        # volumes implicitly. Those volumes can therefore lack MEM or Compose
+        # labels even though their owning container is proven as a reset target.
+        # Include named volumes mounted by the exact target-container set. An
+        # unrelated container cannot contribute a volume to this list.
+        host_reset_list_target_container_volumes "${include_canonical}"
+    } | awk 'NF' | LC_ALL=C sort -u
+}
+
+host_reset_list_target_networks() {
+    local name
+    docker network ls --format '{{.Name}}' 2>/dev/null | while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        case "${name}" in
+            bridge|host|none) continue ;;
+        esac
+        if [[ "${name}" == mem-* ]] ||
+           [[ "$(docker_network_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]]; then
+            printf '%s\n' "${name}"
+        fi
+    done | LC_ALL=C sort -u
+}
+
+host_reset_find_target_volume_container() {
+    local volume_name="$1"
+    local container_name mounted_volume
+    while IFS= read -r container_name; do
+        [[ -n "${container_name}" ]] || continue
+        while IFS= read -r mounted_volume; do
+            [[ "${mounted_volume}" == "${volume_name}" ]] || continue
+            printf '%s\n' "${container_name}"
+            return 0
+        done < <(docker_container_named_volumes "${container_name}")
+    done < <(host_reset_list_target_containers true)
+    return 1
+}
+
+host_reset_resource_reason() {
+    local kind="$1"
+    local name="$2"
+
+    case "${kind}" in
+        container)
+            if host_reset_is_protected_control_plane_name "${name}"; then
+                printf '%s\n' 'explicit canonical Control Plane inclusion'
+            elif [[ "$(docker_container_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]]; then
+                printf 'MEM managed label'
+                local runtime resource
+                runtime="$(docker_container_label "${name}" "${MEM_RUNTIME_MODE_LABEL}")"
+                resource="$(docker_container_label "${name}" "${MEM_RESOURCE_LABEL}")"
+                [[ -n "${runtime}" ]] && printf ' · runtime=%s' "${runtime}"
+                [[ -n "${resource}" ]] && printf ' · resource=%s' "${resource}"
+                printf '\n'
+            else
+                printf '%s\n' 'legacy MEM name'
+            fi
+            ;;
+        volume)
+            if [[ "$(docker_volume_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]]; then
+                printf '%s\n' 'MEM managed label'
+            elif host_reset_volume_has_mem_compose_provenance "${name}"; then
+                local compose_project compose_volume
+                compose_project="$(docker_volume_label "${name}" "${COMPOSE_PROJECT_LABEL}")"
+                compose_volume="$(docker_volume_label "${name}" "${COMPOSE_VOLUME_LABEL}")"
+                printf 'Docker Compose MEM provenance · project=%s' "${compose_project}"
+                [[ -n "${compose_volume}" ]] && printf ' · volume=%s' "${compose_volume}"
+                printf '\n'
+            elif host_reset_is_legacy_mem_volume_name "${name}"; then
+                printf '%s\n' 'legacy MEM name'
+            else
+                local owning_container
+                owning_container="$(host_reset_find_target_volume_container "${name}" || true)"
+                if [[ -n "${owning_container}" ]]; then
+                    printf 'named volume mounted by reset-target container · container=%s\n' "${owning_container}"
+                else
+                    printf '%s\n' 'MEM reset target'
+                fi
+            fi
+            ;;
+        network)
+            if [[ "$(docker_network_label "${name}" "${MEM_MANAGED_LABEL}")" == "true" ]]; then
+                printf '%s\n' 'MEM managed label'
+            else
+                printf '%s\n' 'legacy MEM name'
+            fi
+            ;;
+        *) printf '%s\n' 'unknown' ;;
+    esac
+}
+
+host_reset_print_group() {
+    local title="$1"
+    local kind="$2"
+    shift 2
+    local values=("$@")
+
+    printf '%s\n' "${title}"
+    if [[ "${#values[@]}" -eq 0 ]]; then
+        printf '  (none)\n'
+        return
+    fi
+
+    local value reason
+    for value in "${values[@]}"; do
+        reason="$(host_reset_resource_reason "${kind}" "${value}")"
+        printf '  - %s  [%s]\n' "${value}" "${reason}"
+    done
+}
+
+host_reset_plan() {
+    local include_canonical="${1:-false}"
+    local -a containers volumes networks protected
+
+    mapfile -t containers < <(host_reset_list_target_containers "${include_canonical}")
+    mapfile -t volumes < <(host_reset_list_target_volumes "${include_canonical}")
+    mapfile -t networks < <(host_reset_list_target_networks)
+    mapfile -t protected < <(host_reset_list_protected_control_planes)
+
+    printf 'MEM clean-room development-host reset plan\n\n'
+    host_reset_print_group "Containers to remove" container "${containers[@]}"
+    printf '\n'
+    host_reset_print_group "Volumes to remove" volume "${volumes[@]}"
+    printf '\n'
+    host_reset_print_group "Networks to remove" network "${networks[@]}"
+    printf '\n'
+
+    printf 'Repository development state to remove\n'
+    local state_path state_expected state_suffix
+    while IFS='|' read -r state_expected state_path; do
+        [[ -n "${state_path}" ]] || continue
+        state_suffix=""
+        if host_reset_directory_requires_privileged_cleanup \
+            "${state_expected}" "${state_path}"; then
+            state_suffix="  [privileged cleanup required]"
+        fi
+        printf '  - %s%s\n' "${state_path}" "${state_suffix}"
+    done <<EOF_STATE_PATHS
+${REPO_ROOT}/installer/data|${LEGACY_LOCAL_DATA_ROOT}
+${LEGACY_LOCAL_MEM_DATA_ROOT}|${LEGACY_LOCAL_MEM_DATA_ROOT}
+${STATE_ROOT}/interactive|${INTERACTIVE_STATE}
+${STATE_ROOT}/local|${LOCAL_STATE}
+${STATE_ROOT}/container|${CONTAINER_STATE}
+${STATE_ROOT}/e2e|${E2E_STATE_ROOT}
+EOF_STATE_PATHS
+    printf '\n'
+
+    printf 'Preserved\n'
+    printf '  - Docker images and build cache\n'
+    printf '  - containers, volumes, and networks outside the MEM managed/legacy namespace\n'
+    printf '  - unrelated Portainer and other unrelated services\n'
+
+    if [[ "${#protected[@]}" -gt 0 && "${include_canonical}" != true ]]; then
+        printf '\nProtected canonical Control Plane containers\n'
+        local name
+        for name in "${protected[@]}"; do
+            printf '  - %s\n' "${name}"
+        done
+        printf '\n'
+        printf 'A complete clean-room reset requires --include-canonical-control-plane.\n'
+        printf 'A running canonical Control Plane must still be stopped explicitly first.\n'
+    fi
+}
+
+host_reset_assert_canonical_safe() {
+    local include_canonical="${1:-false}"
+    local name
+
+    while IFS= read -r name; do
+        [[ -n "${name}" ]] || continue
+        if container_running "${name}"; then
+            die "Host reset refused. Canonical Control Plane '${name}' is running. Stop it explicitly before using the clean-room reset."
+        fi
+        [[ "${include_canonical}" == true ]] ||
+            die "Host reset refused. Stopped canonical Control Plane '${name}' is protected. Re-run the dry-run with --include-canonical-control-plane if this development host is intentionally disposable."
+    done < <(host_reset_list_protected_control_planes)
+}
+
+resolve_safe_removal_path() {
+    local expected="$1"
+    local target="$2"
+    local resolved_expected resolved_target
+
+    resolved_expected="$(realpath -m "${expected}")"
+    resolved_target="$(realpath -m "${target}")"
+
+    [[ "${resolved_target}" == "${resolved_expected}" ]] ||
+        die "Refusing to remove unexpected path: ${resolved_target}"
+
+    printf '%s\n' "${resolved_target}"
+}
+
+host_reset_directory_requires_privileged_cleanup() {
+    local expected="$1"
+    local target="$2"
+    local resolved_target
+
+    resolved_target="$(resolve_safe_removal_path "${expected}" "${target}")"
+    [[ -e "${resolved_target}" ]] || return 1
+
+    # Container services such as Seq can create root/foreign-UID directories
+    # inside repository-local bind mounts. Non-writable directories are the
+    # important deletion boundary; read-only files in a writable directory can
+    # still be removed by the directory owner.
+    find "${resolved_target}" \
+        -type d \
+        ! -writable \
+        -print -quit 2>/dev/null | grep -q .
+}
+
+host_reset_repository_cleanup_requires_privilege() {
+    host_reset_directory_requires_privileged_cleanup \
+        "${REPO_ROOT}/installer/data" "${LEGACY_LOCAL_DATA_ROOT}" ||
+    host_reset_directory_requires_privileged_cleanup \
+        "${LEGACY_LOCAL_MEM_DATA_ROOT}" "${LEGACY_LOCAL_MEM_DATA_ROOT}" ||
+    host_reset_directory_requires_privileged_cleanup \
+        "${STATE_ROOT}/interactive" "${INTERACTIVE_STATE}" ||
+    host_reset_directory_requires_privileged_cleanup \
+        "${STATE_ROOT}/local" "${LOCAL_STATE}" ||
+    host_reset_directory_requires_privileged_cleanup \
+        "${STATE_ROOT}/container" "${CONTAINER_STATE}" ||
+    host_reset_directory_requires_privileged_cleanup \
+        "${STATE_ROOT}/e2e" "${E2E_STATE_ROOT}"
+}
+
+host_reset_prepare_repository_cleanup() {
+    HOST_RESET_PRIVILEGED_CLEANUP=false
+
+    if ! host_reset_repository_cleanup_requires_privilege; then
+        return 0
+    fi
+
+    require_command sudo
+    log "Container-owned development-state files require privileged cleanup."
+    log "Authorizing sudo before removing any Docker resources."
+    sudo -v ||
+        die "Host reset refused. Privileged repository-state cleanup is required, but sudo authorization failed."
+
+    HOST_RESET_PRIVILEGED_CLEANUP=true
+}
+
+host_reset_remove_directory() {
+    local expected="$1"
+    local target="$2"
+    local resolved_target
+
+    resolved_target="$(resolve_safe_removal_path "${expected}" "${target}")"
+    [[ -e "${resolved_target}" ]] || return 0
+
+    if rm -rf -- "${resolved_target}" 2>/dev/null; then
+        return 0
+    fi
+
+    [[ "${HOST_RESET_PRIVILEGED_CLEANUP}" == true ]] ||
+        die "Failed to remove development state '${resolved_target}' with current-user permissions. Re-run the host reset so privileged cleanup can be authorized before destructive work begins."
+
+    log "Removing container-owned development state with sudo: ${resolved_target}"
+    sudo rm -rf -- "${resolved_target}" ||
+        die "Privileged cleanup failed for '${resolved_target}'."
+
+    [[ ! -e "${resolved_target}" ]] ||
+        die "Privileged cleanup left development state behind: ${resolved_target}"
+}
+
+host_reset_verify_clean() {
+    local include_canonical="${1:-false}"
+    local remaining_containers remaining_volumes remaining_networks
+
+    remaining_containers="$(host_reset_list_target_containers "${include_canonical}" | paste -sd ', ' -)"
+    remaining_volumes="$(host_reset_list_target_volumes "${include_canonical}" | paste -sd ', ' -)"
+    remaining_networks="$(host_reset_list_target_networks | paste -sd ', ' -)"
+
+    [[ -z "${remaining_containers}" ]] ||
+        die "Host reset incomplete. MEM containers remain: ${remaining_containers}"
+    [[ -z "${remaining_volumes}" ]] ||
+        die "Host reset incomplete. MEM volumes remain: ${remaining_volumes}"
+    [[ -z "${remaining_networks}" ]] ||
+        die "Host reset incomplete. MEM networks remain: ${remaining_networks}"
+}
+
+reset_host() {
+    local dry_run=false
+    local include_canonical=false
+    local confirmation=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --include-canonical-control-plane)
+                include_canonical=true
+                shift
+                ;;
+            --confirm)
+                [[ $# -ge 2 ]] || die "--confirm requires ${HOST_RESET_CONFIRMATION}"
+                confirmation="$2"
+                shift 2
+                ;;
+            *)
+                die "Unknown host reset option: $1"
+                ;;
+        esac
+    done
+
+    require_docker
+    require_command realpath
+    require_command ss
+    require_command find
+    require_command grep
+
+    if [[ "${dry_run}" == true ]]; then
+        host_reset_plan "${include_canonical}"
+        return 0
+    fi
+
+    [[ "${confirmation}" == "${HOST_RESET_CONFIRMATION}" ]] ||
+        die "Host reset refused. Run --dry-run first, then re-run with --confirm ${HOST_RESET_CONFIRMATION}"
+
+    host_reset_assert_canonical_safe "${include_canonical}"
+
+    local_down || true
+    if port_is_listening 7105; then
+        die "Host reset refused. A local API is still listening on port 7105 outside this harness. Stop the VS Code/manual API explicitly before resetting the development host."
+    fi
+
+    # Establish any required privilege before the first Docker resource is
+    # removed. This prevents a permission problem in a container-owned bind
+    # mount from leaving the clean-room reset half-completed.
+    host_reset_prepare_repository_cleanup
+
+    local -a containers volumes networks
+    mapfile -t containers < <(host_reset_list_target_containers "${include_canonical}")
+    mapfile -t volumes < <(host_reset_list_target_volumes "${include_canonical}")
+    mapfile -t networks < <(host_reset_list_target_networks)
+
+    host_reset_plan "${include_canonical}"
+    printf '\n'
+    log "Executing clean-room development-host reset."
+
+    local name
+    for name in "${containers[@]}"; do
+        container_exists "${name}" || continue
+        log "Removing MEM container ${name}."
+        docker rm --force "${name}" >/dev/null
+    done
+
+    for name in "${volumes[@]}"; do
+        docker volume inspect "${name}" >/dev/null 2>&1 || continue
+        log "Removing MEM volume ${name}."
+        docker volume rm "${name}" >/dev/null ||
+            die "Failed to remove MEM volume '${name}'. It may still be attached to a non-target container."
+    done
+
+    for name in "${networks[@]}"; do
+        docker network inspect "${name}" >/dev/null 2>&1 || continue
+        log "Removing MEM network ${name}."
+        docker network rm "${name}" >/dev/null ||
+            die "Failed to remove MEM network '${name}'. It may still have a non-target attachment."
+    done
+
+    host_reset_remove_directory "${REPO_ROOT}/installer/data" "${LEGACY_LOCAL_DATA_ROOT}"
+    host_reset_remove_directory "${LEGACY_LOCAL_MEM_DATA_ROOT}" "${LEGACY_LOCAL_MEM_DATA_ROOT}"
+    host_reset_remove_directory "${STATE_ROOT}/interactive" "${INTERACTIVE_STATE}"
+    rm -f -- "${INTERACTIVE_LEGACY_RETIREMENT_FILE}"
+    host_reset_remove_directory "${STATE_ROOT}/local" "${LOCAL_STATE}"
+    host_reset_remove_directory "${STATE_ROOT}/container" "${CONTAINER_STATE}"
+    host_reset_remove_directory "${STATE_ROOT}/e2e" "${E2E_STATE_ROOT}"
+
+    host_reset_verify_clean "${include_canonical}"
+
+    log "Clean-room development-host reset complete."
+    log "Docker images and build cache were retained."
+    log "The next Control Plane start should observe a host with no MEM runtime state."
+}
+
+require_reset_confirmation() {
+    local supplied="${1:-}"
+    [[ "${supplied}" == "${RESET_CONFIRMATION}" ]]
+}
+
+safe_remove_directory() {
+    local expected="$1"
+    local target="$2"
+    local resolved_target
+    resolved_target="$(resolve_safe_removal_path "${expected}" "${target}")"
+    rm -rf -- "${resolved_target}"
+}
+
+reset_mode() {
+    local mode="$1"
+    shift
+    local confirmation=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --confirm)
+                [[ $# -ge 2 ]] || die "--confirm requires ${RESET_CONFIRMATION}"
+                confirmation="$2"
+                shift 2
+                ;;
+            *)
+                die "Unknown reset option: $1"
+                ;;
+        esac
+    done
+
+    require_reset_confirmation "${confirmation}" ||
+        die "Reset refused. Re-run with --confirm ${RESET_CONFIRMATION}"
+
+    case "${mode}" in
+        interactive)
+            require_docker
+            require_command ss
+            local_down || true
+            if port_is_listening 7105 || port_is_listening 5173; then
+                die "Reset refused. A local API or Vite process is still active outside this harness. Stop it explicitly before resetting shared interactive state."
+            fi
+            if container_exists "${DEV_CONTAINER_NAME}"; then
+                ensure_container_environment
+                compose down --remove-orphans
+            fi
+            remove_scoped_seq_for_reset local
+            remove_scoped_seq_for_reset container
+            if [[ -d "${INTERACTIVE_STATE}" ]]; then
+                docker run --rm \
+                    -v "${INTERACTIVE_STATE}:/state" \
+                    alpine:3.20 chown -R "$(id -u):$(id -g)" /state >/dev/null
+                safe_remove_directory "${STATE_ROOT}/interactive" "${INTERACTIVE_STATE}"
+            fi
+            if [[ -d "${INTERACTIVE_HOST_DATA_ROOT}" ]]; then
+                safe_remove_directory "${CONTAINER_STATE}/host-data" "${INTERACTIVE_HOST_DATA_ROOT}"
+            fi
+            log "Deleted shared interactive Control Plane state, canonical MEM data, and host resource data used by local and container development."
+            log "Legacy ${LEGACY_LOCAL_MEM_DATA_ROOT} compatibility data remains preserved and retired; it is not re-adopted automatically."
+            ;;
+        local|container)
+            die "Ordinary local and container modes now share one state authority. Use './dev/mem-env reset interactive --confirm ${RESET_CONFIRMATION}' instead."
+            ;;
+        *)
+            die "Unknown reset mode: ${mode}"
+            ;;
+    esac
+}
+
+verify_switched_authority() {
+    local expected="$1"
+    local target="$2"
+    [[ -n "${expected}" ]] || return 0
+
+    local observed
+    observed="$(runtime_control_plane_instance_for_mode "${target}" 2>/dev/null || true)"
+    if [[ -z "${observed}" || "${observed}" != "${expected}" ]]; then
+        if [[ "${target}" == local ]]; then
+            local_down || true
+        else
+            container_down || true
+        fi
+        die "Runtime switch refused: shared Control Plane identity changed from ${expected} to ${observed:-unavailable}. The target runtime was stopped to prevent divergent mutation authority."
+    fi
+    log "Shared Control Plane identity preserved across switch: ${observed}"
+}
+
+switch_mode() {
+    local target="$1"
+    local expected_instance=""
+    case "${target}" in
+        local)
+            expected_instance="$(runtime_control_plane_instance_for_mode container 2>/dev/null || true)"
+            if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 &&
+               container_exists "${DEV_CONTAINER_NAME}"; then
+                container_down
+            fi
+            reconcile_interactive_host_data_for_local_switch
+            local_up
+            verify_switched_authority "${expected_instance}" local
+            ;;
+        container)
+            expected_instance="$(runtime_control_plane_instance_for_mode local 2>/dev/null || true)"
+            local_down
+            container_up
+            verify_switched_authority "${expected_instance}" container
+            ;;
+        *)
+            die "Unknown switch target: ${target}"
+            ;;
+    esac
+}
+
+authority_command() {
+    local action="${1:-}"
+    case "${action}" in
+        status)
+            [[ $# -eq 1 ]] || die "authority status takes no additional arguments"
+            require_command python3
+            authority_status
+            ;;
+        adopt)
+            [[ $# -eq 2 ]] || die "authority adopt requires local or container"
+            authority_adopt "$2"
+            ;;
+        repair-mem-data)
+            [[ $# -eq 1 ]] || die "authority repair-mem-data takes no additional arguments"
+            repair_interactive_mem_data
+            ;;
+        *)
+            die "authority requires status, adopt local|container, or repair-mem-data"
+            ;;
+    esac
+}
+
+local_command() {
+    local action="${1:-}"
+    shift || true
+
+    case "${action}" in
+        up|restart)
+            local watch_enabled=true
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --watch) watch_enabled=true ;;
+                    --no-watch) watch_enabled=false ;;
+                    *) die "local ${action} accepts only --watch or --no-watch" ;;
+                esac
+                shift
+            done
+            if [[ "${action}" == restart ]]; then
+                local_down && local_up "${watch_enabled}"
+            else
+                local_up "${watch_enabled}"
+            fi
+            ;;
+        down)
+            [[ $# -eq 0 ]] || die "local down takes no additional arguments"
+            local_down
+            ;;
+        logs)
+            [[ $# -eq 0 ]] || die "local logs takes no additional arguments"
+            local_logs
+            ;;
+        token)
+            [[ $# -eq 0 ]] || die "local token takes no additional arguments"
+            print_token local
+            ;;
+        *) die "Unknown local action: ${action:-<missing>}" ;;
+    esac
+}
+
+container_command() {
+    local action="${1:-}"
+    case "${action}" in
+        build) container_build ;;
+        up) container_up ;;
+        down) container_down ;;
+        restart) container_down && container_up ;;
+        logs) container_logs ;;
+        token) print_token container ;;
+        *) die "Unknown container action: ${action:-<missing>}" ;;
+    esac
+}
+
+seq_command() {
+    local target="${1:-}"
+    case "${target}" in
+        status)
+            [[ $# -eq 1 ]] || die "seq status takes no additional arguments"
+            require_command docker
+            require_command curl
+            require_command python3
+            docker info >/dev/null 2>&1 || die "Docker is unavailable to the current user."
+            printf 'MEM development Seq runtimes\n\n'
+            seq_context_status local
+            seq_context_status container
+            local other_seq
+            other_seq="$(other_managed_seq_container_names | paste -sd ', ' -)"
+            if [[ -n "${other_seq}" ]]; then
+                status_line "Other MEM Seq runtimes" "${other_seq} · observed only"
+            fi
+            ;;
+        local|container)
+            [[ $# -eq 2 ]] || die "seq ${target} requires inspect or logs"
+            require_command docker
+            require_command curl
+            require_command python3
+            docker info >/dev/null 2>&1 || die "Docker is unavailable to the current user."
+            case "$2" in
+                inspect) seq_safe_inspect "${target}" ;;
+                logs) seq_logs "${target}" ;;
+                *) die "seq ${target} requires inspect or logs" ;;
+            esac
+            ;;
+        *) die "seq requires status, local, or container" ;;
+    esac
+}
+
+main() {
+    local command="${1:-}"
+    case "${command}" in
+        status) status ;;
+        doctor) doctor ;;
+        local) shift; local_command "$@" ;;
+        container) shift; container_command "$@" ;;
+        authority) shift; authority_command "$@" ;;
+        host-data) shift; host_data_command "$@" ;;
+        seq) shift; seq_command "$@" ;;
+        e2e) shift; [[ $# -eq 1 ]] || die "e2e requires local, container, or all"; e2e_command "$1" ;;
+        switch) shift; [[ $# -eq 1 ]] || die "switch requires local or container"; switch_mode "$1" ;;
+        reset)
+            shift
+            [[ $# -ge 1 ]] || die "reset requires interactive or host"
+            local mode="$1"
+            shift
+            if [[ "${mode}" == "host" ]]; then
+                reset_host "$@"
+            else
+                reset_mode "${mode}" "$@"
+            fi
+            ;;
+        help|--help|-h|"") usage ;;
+        *) die "Unknown command: ${command}" ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

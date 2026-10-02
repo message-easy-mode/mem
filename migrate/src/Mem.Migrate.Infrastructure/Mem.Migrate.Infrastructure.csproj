@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Mem.Migrate.Infrastructure</AssemblyName>
+    <RootNamespace>Mem.Migrate.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mem.Migrate.Core/Mem.Migrate.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,25 @@
+backups/
+├── api/                                # HostAgent contract ownership
+│   ├── artifacts/                      # local capture and ZIP ingestion/provenance
+│   ├── catalog/                        # canonical Backup Catalog
+│   ├── restores/                       # canonical Restore Attempt list
+│   ├── workspace/                      # canonical Restore Workspace
+│   ├── standard-recreate/              # workspace preflight support
+│   └── verification/                   # explicit private-staging teardown
+├── hooks/                              # React Query lifecycle
+├── pages/                              # operator journey / URL hierarchy
+│   ├── backups/
+│   │   ├── index.tsx                   # /backups
+│   │   ├── import/index.tsx            # /backups/import
+│   │   ├── catalog/index.tsx           # /backups/catalog/:catalogEntryId
+│   │   └── uploads/[validationId]/      # /backups/uploads/:validationId
+│   └── restores/
+│       ├── index.tsx                   # /restores
+│       └── [restoreSessionId]/          # /restores/:restoreSessionId
+├── shared/components/                  # genuinely reusable presentational pieces
+└── routes.tsx                          # explicit React Router route array
+
+
+## R06 legacy-surface removal
+
+Validation IDs remain only within uploaded-ZIP validation, retained-archive provenance, and catalog materialisation. They are not restore session identifiers, workspace route keys, private-test sources, or Standard Recreate sources.
