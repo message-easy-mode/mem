@@ -40,6 +40,12 @@ CONTROL_PLANE_CONTAINER_NAME="mem-control-plane"
 CONTROL_PLANE_IMAGE="mem-control-plane:test"
 CONTROL_PLANE_VOLUME_NAME="mem-control-plane-data"
 SETUP_TOKEN="unkeyed-bootstrap-authority-value"
+docker() {
+    if [[ "\${1:-}" == "inspect" && "\${2:-}" == "mem-control-plane" ]]; then
+        return 0
+    fi
+    return 1
+}
 bootstrap_reporting_init
 bootstrap_install_failure_traps
 bootstrap_set_phase "control-plane-ready-health"
@@ -81,7 +87,43 @@ assert_not_contains "${FAILURE_REPORT}" "unkeyed-bootstrap-authority-value"
 assert_contains "${TRANSCRIPT}" "token=[REDACTED]"
 assert_contains "${FAILURE_REPORT}" "password=[REDACTED]"
 
-# 2. Dry-run reporting must stay non-mutating: no persistent report directory is created.
+# 2. An early bootstrap failure must not suggest Control Plane Docker logs when
+# the container does not exist yet.
+EARLY_FAILURE_DIR="${TMP_ROOT}/early-failure"
+EARLY_FIXTURE="${TMP_ROOT}/early-failure-fixture.sh"
+cat > "${EARLY_FIXTURE}" <<EOF_EARLY_FIXTURE
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "${BOOTSTRAP_ROOT}/lib/logging.sh"
+DRY_RUN=false
+MEM_BOOTSTRAP_LOG_DIR="${EARLY_FAILURE_DIR}"
+CONTROL_PLANE_CONTAINER_NAME="mem-control-plane"
+docker() { return 1; }
+bootstrap_reporting_init
+bootstrap_install_failure_traps
+bootstrap_set_phase "docker-checks"
+bootstrap_set_operation "install Docker from official apt repository"
+bootstrap_mark_changes_begun
+false
+EOF_EARLY_FIXTURE
+chmod +x "${EARLY_FIXTURE}"
+
+set +e
+bash "${EARLY_FIXTURE}" >"${TMP_ROOT}/early-failure.stdout" 2>"${TMP_ROOT}/early-failure.stderr"
+early_fixture_status=$?
+set -e
+[[ ${early_fixture_status} -ne 0 ]] || fail_test "early failure fixture unexpectedly succeeded"
+
+EARLY_FAILURE_REPORT="$(find "${EARLY_FAILURE_DIR}" -maxdepth 1 -type f -name 'mem-bootstrap-*-failure.txt' | head -n 1)"
+[[ -n "${EARLY_FAILURE_REPORT}" && -f "${EARLY_FAILURE_REPORT}" ]] || fail_test "early failure report was not created"
+assert_not_contains "${EARLY_FAILURE_REPORT}" "docker logs --timestamps --tail 500 mem-control-plane"
+assert_not_contains "${TMP_ROOT}/early-failure.stderr" "docker logs --timestamps --tail 500 mem-control-plane"
+assert_contains "${EARLY_FAILURE_REPORT}" "Control Plane logs are not available because container 'mem-control-plane' is not available for inspection."
+assert_contains "${EARLY_FAILURE_REPORT}" "Failure occurred during bootstrap phase 'docker-checks'."
+assert_contains "${EARLY_FAILURE_REPORT}" "Resolve or wait for the reported host/package prerequisite, then rerun the same MEM bootstrap command."
+assert_contains "${TMP_ROOT}/early-failure.stderr" "Control Plane logs are not available because container 'mem-control-plane' is not available for inspection."
+
+# 3. Dry-run reporting must stay non-mutating: no persistent report directory is created.
 DRY_DIR="${TMP_ROOT}/dry-run"
 (
     source "${BOOTSTRAP_ROOT}/lib/logging.sh"
@@ -94,7 +136,7 @@ DRY_DIR="${TMP_ROOT}/dry-run"
 )
 [[ ! -e "${DRY_DIR}" ]] || fail_test "dry-run created persistent bootstrap evidence"
 
-# 3. Rotation keeps the configured number of transcript runs and failure reports.
+# 4. Rotation keeps the configured number of transcript runs and failure reports.
 ROTATE_DIR="${TMP_ROOT}/rotate"
 mkdir -p "${ROTATE_DIR}"
 for i in 1 2 3 4 5; do
@@ -117,7 +159,7 @@ failure_count="$(find "${ROTATE_DIR}" -maxdepth 1 -type f -name 'mem-bootstrap-*
 [[ "${failure_count}" -eq 3 ]] || fail_test "rotation retained ${failure_count} failure reports instead of 3"
 
 
-# 4. Container failure capture keeps only bounded safe inspect/log evidence and redacts
+# 5. Container failure capture keeps only bounded safe inspect/log evidence and redacts
 # the persisted setup authority if it ever appears in container output.
 CAPTURE_DIR="${TMP_ROOT}/capture"
 CAPTURE_OUT="${TMP_ROOT}/capture.out"

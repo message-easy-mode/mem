@@ -129,9 +129,9 @@ install_docker_from_official_apt_repo() {
 
     log_info "Installing Docker using the official Docker apt repository..."
 
-    apt-get update
+    run_apt_get_with_lock_retry update
 
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    run_apt_get_with_lock_retry install -y \
         ca-certificates \
         curl \
         gnupg
@@ -147,9 +147,9 @@ install_docker_from_official_apt_repo() {
         "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${OS_CODENAME} stable" \
         > /etc/apt/sources.list.d/docker.list
 
-    apt-get update
+    run_apt_get_with_lock_retry update
 
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    run_apt_get_with_lock_retry install -y \
         docker-ce \
         docker-ce-cli \
         containerd.io \

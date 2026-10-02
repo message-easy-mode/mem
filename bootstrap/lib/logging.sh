@@ -149,6 +149,37 @@ bootstrap_failure_recovery_container() {
     fi
 }
 
+bootstrap_failure_recovery_container_available() {
+    local recovery_container
+    recovery_container="$(bootstrap_failure_recovery_container)"
+
+    command -v docker >/dev/null 2>&1 || return 1
+    docker inspect "${recovery_container}" >/dev/null 2>&1
+}
+
+bootstrap_print_failure_recovery_actions() {
+    local recovery_container
+    recovery_container="$(bootstrap_failure_recovery_container)"
+
+    if bootstrap_failure_recovery_container_available; then
+        echo "  sudo docker logs --timestamps --tail 500 ${recovery_container}"
+        echo "  Resolve the reported failure, then rerun the same MEM bootstrap command."
+        return 0
+    fi
+
+    echo "  Control Plane logs are not available because container '${recovery_container}' is not available for inspection."
+    echo "  Failure occurred during bootstrap phase '${BOOTSTRAP_PHASE}'."
+
+    case "${BOOTSTRAP_PHASE}" in
+        start|host-checks|system-checks|package-checks|mem-cli|docker-checks)
+            echo "  Resolve or wait for the reported host/package prerequisite, then rerun the same MEM bootstrap command."
+            ;;
+        *)
+            echo "  Resolve the reported failure, then rerun the same MEM bootstrap command."
+            ;;
+    esac
+}
+
 bootstrap_write_failure_report() {
     local status="$1"
 
@@ -158,8 +189,6 @@ bootstrap_write_failure_report() {
 
     local failure_line="${BOOTSTRAP_FAILURE_LINE:-unknown}"
     local failure_function="${BOOTSTRAP_FAILURE_FUNCTION:-unknown}"
-    local recovery_container
-    recovery_container="$(bootstrap_failure_recovery_container)"
 
     {
         echo "MEM bootstrap failed"
@@ -185,8 +214,7 @@ bootstrap_write_failure_report() {
         fi
         echo
         echo "Suggested next actions:"
-        echo "  sudo docker logs --timestamps --tail 500 ${recovery_container}"
-        echo "  sudo ./install.sh --dry-run"
+        bootstrap_print_failure_recovery_actions
         echo "Review the generated report before sharing it externally."
     } | bootstrap_redact_stream > "${BOOTSTRAP_FAILURE_REPORT_PATH}"
 
@@ -251,7 +279,7 @@ bootstrap_finalize_failure() {
     echo "Transcript: ${BOOTSTRAP_TRANSCRIPT_PATH}" >&2
     echo "Failure report: ${BOOTSTRAP_FAILURE_REPORT_PATH}" >&2
     echo "Suggested recovery:" >&2
-    echo "  sudo docker logs --timestamps --tail 500 $(bootstrap_failure_recovery_container)" >&2
+    bootstrap_print_failure_recovery_actions >&2
 }
 
 bootstrap_exit_trap() {

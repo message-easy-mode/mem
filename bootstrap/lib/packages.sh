@@ -3,6 +3,70 @@
 # Package prerequisite checks/install for Message Easy Mode bootstrap installer.
 # This file is sourced by bootstrap/install.sh.
 
+APT_LOCK_RETRY_ATTEMPTS="${APT_LOCK_RETRY_ATTEMPTS:-30}"
+APT_LOCK_RETRY_DELAY_SECONDS="${APT_LOCK_RETRY_DELAY_SECONDS:-10}"
+
+apt_output_indicates_lock_contention() {
+    local output_file="$1"
+
+    grep -Eq \
+        'Could not get lock|Unable to acquire the .* lock|Unable to lock directory' \
+        "${output_file}"
+}
+
+run_apt_get_with_lock_retry() {
+    local attempt=1
+    local max_attempts="${APT_LOCK_RETRY_ATTEMPTS}"
+    local retry_delay="${APT_LOCK_RETRY_DELAY_SECONDS}"
+
+    if ! [[ "${max_attempts}" =~ ^[0-9]+$ ]] || (( max_attempts < 1 )); then
+        max_attempts=30
+    fi
+    if ! [[ "${retry_delay}" =~ ^[0-9]+$ ]]; then
+        retry_delay=10
+    fi
+
+    while (( attempt <= max_attempts )); do
+        local output_file
+        local apt_status
+        output_file="$(mktemp "${TMPDIR:-/tmp}/mem-apt-lock.XXXXXX")"
+
+        # Keep normal apt output visible while retaining enough text to distinguish
+        # transient package-manager contention from a real apt failure.
+        if DEBIAN_FRONTEND=noninteractive apt-get "$@" 2>&1 | tee "${output_file}"; then
+            apt_status="${PIPESTATUS[0]}"
+        else
+            apt_status="${PIPESTATUS[0]}"
+        fi
+
+        if (( apt_status == 0 )); then
+            rm -f -- "${output_file}"
+            return 0
+        fi
+
+        if ! apt_output_indicates_lock_contention "${output_file}"; then
+            rm -f -- "${output_file}"
+            return "${apt_status}"
+        fi
+
+        rm -f -- "${output_file}"
+
+        if (( attempt >= max_attempts )); then
+            log_error "Ubuntu package manager remained busy after ${max_attempts} attempts. Wait for the active apt/dpkg operation to finish, then rerun MEM."
+            return "${apt_status}"
+        fi
+
+        if (( attempt == 1 )); then
+            log_info "Ubuntu package manager is busy (for example, unattended upgrades may still be running). MEM will wait and retry automatically."
+        else
+            log_info "Ubuntu package manager is still busy; retrying (${attempt}/${max_attempts})."
+        fi
+
+        sleep "${retry_delay}"
+        attempt=$((attempt + 1))
+    done
+}
+
 REQUIRED_PACKAGES=(
     ca-certificates
     curl
@@ -67,10 +131,10 @@ install_required_packages() {
     bootstrap_mark_changes_begun
 
     log_info "Updating apt package index..."
-    apt-get update
+    run_apt_get_with_lock_retry update
 
     log_info "Installing required packages: ${MISSING_PACKAGES[*]}"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${MISSING_PACKAGES[@]}"
+    run_apt_get_with_lock_retry install -y "${MISSING_PACKAGES[@]}"
 }
 run_package_checks() {
     check_required_packages
