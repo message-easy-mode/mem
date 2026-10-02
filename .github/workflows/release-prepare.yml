@@ -1,0 +1,462 @@
+name: Prepare MEM release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact MEM SemVer to prepare. Use 0.2.0-rc.1 for the first provider proof.
+        required: true
+        default: 0.2.0-rc.1
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: mem-release-prepare
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: message-easy-mode/mem
+  RELEASE_REPOSITORY: message-easy-mode/mem-releases
+  IMAGE_REPOSITORY: ghcr.io/message-easy-mode/mem-control-plane
+  NODE_VERSION: 22.23.2
+  DOTNET_SDK_VERSION: 8.0.424
+  TRIVY_VERSION: v0.74.0
+
+jobs:
+  prepare:
+    name: Build, verify, attest and draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            installer/src/Web/package-lock.json
+            migrate/src/Mem.Migrate.Web/ClientApp/package-lock.json
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Preflight exact source and release identity
+        id: preflight
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ secrets.MEM_RELEASES_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -Eeuo pipefail
+          IFS=$'\n\t'
+
+          fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+          [[ "$GITHUB_REPOSITORY" == "$SOURCE_REPOSITORY" ]] || \
+            fail "This workflow may run only in source repository $SOURCE_REPOSITORY."
+          [[ -n "$RELEASE_TOKEN" ]] || \
+            fail "MEM_RELEASES_TOKEN is required to create/check releases in $RELEASE_REPOSITORY."
+          [[ "$GITHUB_REF" == "refs/heads/${DEFAULT_BRANCH}" ]] || \
+            fail "Release preparation must be dispatched from the default branch (${DEFAULT_BRANCH})."
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] || \
+            fail "Version must be an ordinary stable/prerelease SemVer without build metadata."
+          case "$VERSION" in
+            *latest*|*stable*|*current*|*dev*)
+              fail "Version may not contain a mutable channel/development label."
+              ;;
+          esac
+
+          HEAD_SHA="$(git rev-parse HEAD)"
+          DEFAULT_SHA="$(gh api \
+            "repos/${SOURCE_REPOSITORY}/commits/${DEFAULT_BRANCH}" \
+            --jq '.sha')"
+          [[ "$HEAD_SHA" == "$GITHUB_SHA" ]] || \
+            fail "Checked-out HEAD does not equal the workflow source SHA."
+          [[ "$HEAD_SHA" == "$DEFAULT_SHA" ]] || \
+            fail "Workflow source is not the current default-branch tip."
+          [[ -z "$(git status --porcelain --untracked-files=all)" ]] || \
+            fail "Release source worktree is dirty before building."
+
+          TAG="v${VERSION}"
+          if git show-ref --verify --quiet "refs/tags/${TAG}"; then
+            fail "Release tag already exists locally: ${TAG}"
+          fi
+          RELEASE_DEFAULT_BRANCH="$(GH_TOKEN="$RELEASE_TOKEN" gh api \
+            "repos/${RELEASE_REPOSITORY}" --jq '.default_branch')"
+          [[ -n "$RELEASE_DEFAULT_BRANCH" ]] || \
+            fail "Could not determine default branch for $RELEASE_REPOSITORY."
+
+          if GH_TOKEN="$RELEASE_TOKEN" gh api \
+            "repos/${RELEASE_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            fail "Release tag already exists in $RELEASE_REPOSITORY: ${TAG}"
+          fi
+          if GH_TOKEN="$RELEASE_TOKEN" gh release view \
+            "$TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            fail "GitHub Release already exists in $RELEASE_REPOSITORY: ${TAG}"
+          fi
+
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$HEAD_SHA")"
+          [[ "$SOURCE_DATE_EPOCH" =~ ^[0-9]+$ ]] || fail "Could not derive source timestamp."
+          BUILD_DATE="$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          RELEASE_ROOT="${RUNNER_TEMP}/mem-release"
+          rm -rf -- "$RELEASE_ROOT"
+          mkdir -p \
+            "$RELEASE_ROOT/cli" \
+            "$RELEASE_ROOT/migrate" \
+            "$RELEASE_ROOT/sbom" \
+            "$RELEASE_ROOT/public" \
+            "$RELEASE_ROOT/evidence"
+
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "source_commit=$HEAD_SHA"
+            echo "source_date_epoch=$SOURCE_DATE_EPOCH"
+            echo "build_date=$BUILD_DATE"
+            echo "release_root=$RELEASE_ROOT"
+            echo "release_default_branch=$RELEASE_DEFAULT_BRANCH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Reject an existing exact Control Plane tag
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          if docker buildx imagetools inspect "${IMAGE_REPOSITORY}:${VERSION}" >/dev/null 2>&1; then
+            echo "ERROR: GHCR image tag already exists: ${IMAGE_REPOSITORY}:${VERSION}" >&2
+            echo "Use a new prerelease version or explicitly resolve/remove the failed candidate; never overwrite a release tag." >&2
+            exit 1
+          fi
+
+      - name: Resolve base images to immutable digests
+        id: bases
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ steps.preflight.outputs.release_root }}/evidence
+        run: |
+          set -Eeuo pipefail
+          IFS=$'\n\t'
+
+          resolve_image() {
+            local image="$1" manifest digest
+            manifest="$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}')"
+            digest="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])' <<< "$manifest")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "ERROR: Could not resolve immutable digest for $image" >&2
+              return 1
+            }
+            printf '%s@%s\n' "$image" "$digest"
+          }
+
+          NODE_IMAGE="$(resolve_image 'node:22-alpine')"
+          DOTNET_SDK_IMAGE="$(resolve_image 'mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim')"
+          DOTNET_RUNTIME_IMAGE="$(resolve_image 'mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim')"
+          DOCKER_CLI_IMAGE="$(resolve_image 'docker:29-cli')"
+
+          {
+            echo "node_image=$NODE_IMAGE"
+            echo "dotnet_sdk_image=$DOTNET_SDK_IMAGE"
+            echo "dotnet_runtime_image=$DOTNET_RUNTIME_IMAGE"
+            echo "docker_cli_image=$DOCKER_CLI_IMAGE"
+          } >> "$GITHUB_OUTPUT"
+
+          python3 - \
+            "$EVIDENCE_DIR/base-images.json" \
+            "$NODE_IMAGE" \
+            "$DOTNET_SDK_IMAGE" \
+            "$DOTNET_RUNTIME_IMAGE" \
+            "$DOCKER_CLI_IMAGE" <<'PY'
+          import json, sys
+          output, node, sdk, runtime, docker_cli = sys.argv[1:]
+          doc = {
+              "schemaVersion": 1,
+              "baseImages": {
+                  "node": node,
+                  "dotnetSdk": sdk,
+                  "dotnetRuntime": runtime,
+                  "dockerCli": docker_cli,
+              },
+          }
+          with open(output, "w", encoding="utf-8") as handle:
+              json.dump(doc, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+
+      - name: Build and push exact Control Plane image
+        id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./installer
+          file: ./installer/Dockerfile
+          build-contexts: |
+            migrate-source=./migrate
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_REPOSITORY }}:${{ steps.preflight.outputs.version }}
+          build-args: |
+            NODE_IMAGE=${{ steps.bases.outputs.node_image }}
+            DOTNET_SDK_IMAGE=${{ steps.bases.outputs.dotnet_sdk_image }}
+            DOTNET_RUNTIME_IMAGE=${{ steps.bases.outputs.dotnet_runtime_image }}
+            DOCKER_CLI_IMAGE=${{ steps.bases.outputs.docker_cli_image }}
+            MEM_PRODUCT_VERSION=${{ steps.preflight.outputs.version }}
+            MEM_COMMIT_SHA=${{ steps.preflight.outputs.source_commit }}
+            BUILD_DATE=${{ steps.preflight.outputs.build_date }}
+            SOURCE_DATE_EPOCH=${{ steps.preflight.outputs.source_date_epoch }}
+          provenance: false
+          sbom: false
+
+      - name: Record and verify pushed image
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.preflight.outputs.source_commit }}
+          BUILD_DATE: ${{ steps.preflight.outputs.build_date }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          EVIDENCE_DIR: ${{ steps.preflight.outputs.release_root }}/evidence
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "ERROR: Build did not return an immutable image digest." >&2
+            exit 1
+          }
+          IMAGE_REF="${IMAGE_REPOSITORY}:${VERSION}@${IMAGE_DIGEST}"
+
+          ./scripts/release/verify-control-plane-image.sh \
+            --image "$IMAGE_REF" \
+            --version "$VERSION" \
+            --source-commit "$SOURCE_COMMIT" \
+            --created "$BUILD_DATE"
+
+          python3 - \
+            "$EVIDENCE_DIR/control-plane-image.json" \
+            "$IMAGE_REF" \
+            "$SOURCE_COMMIT" \
+            "$BUILD_DATE" <<'PY'
+          import json, sys
+          output, image, commit, created = sys.argv[1:]
+          doc = {
+              "schemaVersion": 1,
+              "image": image,
+              "sourceCommit": commit,
+              "created": created,
+          }
+          with open(output, "w", encoding="utf-8") as handle:
+              json.dump(doc, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+
+      - name: Attest Control Plane image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/message-easy-mode/mem-control-plane
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate SPDX 2.3 image SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.IMAGE_REPOSITORY }}:${{ steps.preflight.outputs.version }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: ${{ steps.preflight.outputs.release_root }}/sbom/mem-${{ steps.preflight.outputs.version }}-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest Control Plane image SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/message-easy-mode/mem-control-plane
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: ${{ steps.preflight.outputs.release_root }}/sbom/mem-${{ steps.preflight.outputs.version }}-sbom.spdx.json
+          push-to-registry: true
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+
+      - name: Capture vulnerability and license evidence
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          EVIDENCE_DIR: ${{ steps.preflight.outputs.release_root }}/evidence
+        run: |
+          set -Eeuo pipefail
+          IMAGE_REF="${IMAGE_REPOSITORY}:${VERSION}@${IMAGE_DIGEST}"
+
+          trivy image \
+            --scanners vuln \
+            --format json \
+            --output "$EVIDENCE_DIR/trivy-vulnerabilities.json" \
+            "$IMAGE_REF"
+
+          trivy image \
+            --scanners license \
+            --format json \
+            --output "$EVIDENCE_DIR/trivy-licenses.json" \
+            "$IMAGE_REF"
+
+          # 0.2.0 automated security gate: no fixable CRITICAL image vulnerabilities.
+          # Full vulnerability and license JSON remain internal review evidence.
+          trivy image \
+            --scanners vuln \
+            --ignore-unfixed \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            "$IMAGE_REF"
+
+      - name: Build standalone MEM CLI release
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.preflight.outputs.source_commit }}
+          SOURCE_DATE_EPOCH: ${{ steps.preflight.outputs.source_date_epoch }}
+          CLI_DIR: ${{ steps.preflight.outputs.release_root }}/cli
+        run: |
+          set -Eeuo pipefail
+          ./scripts/release/build-cli-release.sh \
+            --version "$VERSION" \
+            --source-commit "$SOURCE_COMMIT" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --output-dir "$CLI_DIR"
+
+      - name: Build MEM Migrate release
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ steps.preflight.outputs.source_date_epoch }}
+          MIGRATE_DIR: ${{ steps.preflight.outputs.release_root }}/migrate
+        run: |
+          set -Eeuo pipefail
+          ./scripts/release/build-migrate-release.sh \
+            --version "$VERSION" \
+            --output-dir "$MIGRATE_DIR"
+
+      - name: Assemble exact public product release
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.preflight.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          RELEASE_ROOT: ${{ steps.preflight.outputs.release_root }}
+        run: |
+          set -Eeuo pipefail
+          IMAGE_REF="${IMAGE_REPOSITORY}:${VERSION}@${IMAGE_DIGEST}"
+
+          ./scripts/release/assemble-product-release.sh \
+            --version "$VERSION" \
+            --source-commit "$SOURCE_COMMIT" \
+            --control-plane-image "$IMAGE_REF" \
+            --cli-dir "$RELEASE_ROOT/cli" \
+            --migrate-dir "$RELEASE_ROOT/migrate" \
+            --sbom "$RELEASE_ROOT/sbom/mem-${VERSION}-sbom.spdx.json" \
+            --output-dir "$RELEASE_ROOT/public"
+
+          python3 scripts/release/validate-release-manifest.py \
+            "$RELEASE_ROOT/public/release.json" \
+            --assets-dir "$RELEASE_ROOT/public"
+
+          [[ "$(find "$RELEASE_ROOT/public" -maxdepth 1 -type f | wc -l)" -eq 10 ]] || {
+            echo "ERROR: Public release directory must contain exactly ten files." >&2
+            exit 1
+          }
+          (cd "$RELEASE_ROOT/public" && sha256sum -c SHA256SUMS)
+
+      - name: Attest exact public release files
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.preflight.outputs.release_root }}/public/*
+
+      - name: Upload internal release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mem-${{ steps.preflight.outputs.version }}-release-evidence
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            ${{ steps.preflight.outputs.release_root }}/evidence/
+            ${{ steps.preflight.outputs.release_root }}/cli/*.build-info.json
+            ${{ steps.preflight.outputs.release_root }}/migrate/*.build-info.json
+            ${{ steps.preflight.outputs.release_root }}/public/release.json
+            ${{ steps.preflight.outputs.release_root }}/public/SHA256SUMS
+
+      - name: Create GitHub Release draft with exact assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MEM_RELEASES_TOKEN }}
+          VERSION: ${{ steps.preflight.outputs.version }}
+          TAG: ${{ steps.preflight.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.preflight.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          RELEASE_ROOT: ${{ steps.preflight.outputs.release_root }}
+          RELEASE_DEFAULT_BRANCH: ${{ steps.preflight.outputs.release_default_branch }}
+        run: |
+          set -Eeuo pipefail
+          IFS=$'\n\t'
+
+          NOTES="$RELEASE_ROOT/release-notes.md"
+          cat > "$NOTES" <<EOF
+          Message Easy Mode ${VERSION} release candidate prepared by the trusted release workflow.
+
+          Source commit: ${SOURCE_COMMIT}
+          Control Plane: ${IMAGE_REPOSITORY}:${VERSION}@${IMAGE_DIGEST}
+
+          This release is deliberately a draft. Publishing is a separate operator action after the
+          required MEM functional QA gates are complete and release immutability is enabled.
+          EOF
+
+          mapfile -d '' ASSETS < <(
+            find "$RELEASE_ROOT/public" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z
+          )
+          [[ "${#ASSETS[@]}" -eq 10 ]] || {
+            echo "ERROR: Refusing to create a draft with anything other than the exact ten public files." >&2
+            exit 1
+          }
+
+          PRERELEASE_ARGS=()
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_ARGS=(--prerelease)
+          fi
+
+          gh release create "$TAG" \
+            "${ASSETS[@]}" \
+            --repo "$RELEASE_REPOSITORY" \
+            --draft \
+            --target "$RELEASE_DEFAULT_BRANCH" \
+            --title "Message Easy Mode ${VERSION}" \
+            --notes-file "$NOTES" \
+            "${PRERELEASE_ARGS[@]}"
+
+          echo "Prepared draft GitHub Release: ${TAG}"
+          echo "STOP: this workflow does not publish the draft."
